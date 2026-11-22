@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>VOX ARENA · Parkour & PvP</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+<div id="hud" class="hidden">
+  <div id="hud-top">
+    <div class="hud-box" id="hud-left">
+      <div id="timerText" class="timer">0.00</div>
+      <div id="levelText" class="muted">VOX Arena</div>
+      <div id="cpText" class="muted"></div>
+    </div>
+    <div id="hud-center"></div>
+    <div class="hud-box" id="hud-right">
+      <div id="posText"></div>
+      <div id="speedText"></div>
+      <div id="pingText" class="muted"></div>
+    </div>
+  </div>
+  <div id="racebars"></div>
+  <div id="hud-bottom">
+    <div id="healthBox" class="hidden">
+      <div id="hpText">20</div>
+      <div class="hpbar"><i id="healthFill"></i></div>
+      <div id="scoreText" class="muted"></div>
+    </div>
+    <div id="hotbar"></div>
+  </div>
+  <div id="killfeed"></div>
+  <div id="hint"></div>
+  <div id="crosshair"><i></i><i></i></div>
+</div>
+<div id="countdown" class="hidden"></div>
+<div id="toast"></div>
+<div id="overlay"></div>
+<div id="loading"><div class="spinner"></div><div id="loadingText">Building voxel world…</div></div>
+
+<script src="./three.min.js"></script>
+<script src="./js/physics.js"></script>
+<script src="./js/textures.js"></script>
+<script src="./js/player.js"></script>
+<script src="./js/arenas.js"></script>
+<script src="./js/levelgen.js"></script>
+<script src="./js/world.js"></script>
+<script src="./js/combat.js"></script>
+<script src="./js/audio.js"></script>
+<script src="./js/net.js"></script>
+<script src="./js/ui.js"></script>
+<script src="./js/game.js"></script>
+<script src="./js/main.js"></script>
+</body>
+</html>
