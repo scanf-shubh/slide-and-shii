@@ -31,7 +31,7 @@
     slideBoost: 0.09,
     slideDrag: 0.997,
     slideAccel: 0.005,
-    stopDrag: 0.68,
+    stopDrag: 0.4,
     maxSlide: 0.32,
     boostMax: 0.46,
     grappleMax: 30,

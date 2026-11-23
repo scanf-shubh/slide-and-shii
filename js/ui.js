@@ -153,6 +153,12 @@
     $('cancelConn').onclick = () => { UI.app.leaveRoom(); UI.showMenu(); };
   };
 
+  UI.inviteLink = function (room) {
+    const code = room ? room.code : (UI.app && UI.app.room ? UI.app.room.code : '');
+    if (!code) return '';
+    return global.location.origin + global.location.pathname + '?room=' + String(code).toUpperCase();
+  };
+
   UI.showLobby = function () {
     const app = UI.app;
     const room = app.room;
@@ -197,8 +203,7 @@
     $('overlay').innerHTML =
       '<div class="shell"><div class="brand" style="margin-bottom:14px"><div class="logo"></div><div><h1 style="font-size:28px">ROOM ' + esc(room.code) + '</h1><p>' + (isHost ? 'You are the host' : 'Waiting for the host') + ' · ' + esc(app.netMode || 'p2p') + (app.ping ? ' · ' + app.ping + ' ms' : '') + '</p></div></div>' +
       '<div class="grid"><div class="stack">' +
-      '<div class="panel"><h2>Invite</h2><div class="codebox"><div class="code" id="roomCode">' + esc(room.code) + '</div><button class="small" id="copyCode">Copy code</button></div>' +
-      '<div class="notice">Share the code. Friends open this game, press <b>Join Room</b> and enter it. Max 4 players.</div></div>' +
+      '<div class="panel"><h2>Invite</h2><div class="codebox"><div class="code" id="roomCode">' + esc(room.code) + '</div><button class="small" id="copyCode">Copy code</button></div><div class="row" style="margin-top:8px"><button class="small" id="copyInvite">Copy invite link</button></div><div class="notice">Share the invite link or code. Friends open the invite link to auto-join, or paste the code into <b>Join Room</b>. Max 4 players.</div></div>' +
       '<div class="panel"><h2>Players</h2><p class="sub">Ready up before the host starts.</p><div class="slots">' + slots.join('') + '</div></div>' +
       '</div><div class="stack">' +
       '<div class="panel"><h2>Mode</h2><p class="sub">' + (isHost ? 'Choose the match type.' : 'Host chooses the mode.') + '</p>' +
@@ -228,6 +233,12 @@
       const txt = room.code;
       if (navigator.clipboard) navigator.clipboard.writeText(txt).then(() => UI.toast('Room code copied', '#8be02a'));
       else UI.toast('Code: ' + txt, '#8be02a');
+    };
+    $('copyInvite').onclick = () => {
+      const link = UI.inviteLink(room);
+      const done = () => UI.toast('Invite link copied', '#8be02a');
+      if (navigator.clipboard) navigator.clipboard.writeText(link).then(done).catch(() => UI.toast('Copy failed', '#ff5b5b'));
+      else UI.toast(link, '#8be02a');
     };
     $('lobbyLeave').onclick = () => app.leaveRoom();
     if (isHost) {
@@ -279,7 +290,7 @@
     $('overlay').innerHTML =
       '<div class="shell" style="max-width:720px"><div class="brand" style="margin-bottom:14px"><div class="logo"></div><div><h1 style="font-size:26px">CONTROLS</h1><p>Identical movement engine across every mode</p></div></div>' +
       '<div class="panel"><div class="scroll"><table style="width:100%;border-collapse:collapse;font-size:14px;line-height:1.9">' +
-      [['W A S D', 'Move'], ['Mouse', 'Look'], ['Space', 'Jump / double jump'], ['C', 'Slide'], ['E', 'Quick grapple (hold to keep pulling)'], ['1 / 2 / 3 / 4', 'Sword / spear / grapple / bow'], ['Shift', 'Sneak (edge guard)'], ['Ctrl / double-tap W', 'Sprint'], ['V', 'First / third person'], ['R', 'Respawn / restart'], ['Esc', 'Pause'], ['Left click', 'Attack / fire bow / break block (bridge)'], ['Right click', 'Spear charge & dash / weapon block / place block (bridge)'], ['F', 'Place block (PvP build arenas)'], ['G', 'Break block (PvP build arenas)']].map((r) => '<tr><td style="width:44%"><kbd>' + r[0] + '</kbd></td><td>' + r[1] + '</td></tr>').join('') +
+      [['W A S D', 'Move'], ['Mouse', 'Look'], ['Space', 'Jump / double jump'], ['C', 'Slide'], ['E', 'Quick grapple (hold to keep pulling)'], ['1 / 2 / 3 / 4', 'Sword / spear / grapple / bow'], ['Scroll', 'Change weapon'], ['I', 'Inspect player'], ['Shift', 'Sneak (edge guard)'], ['Ctrl / double-tap W', 'Sprint'], ['V', 'First / third person'], ['R', 'Respawn / restart'], ['Esc', 'Pause'], ['Left click', 'Attack / fire bow / break block (bridge)'], ['Right click', 'Spear charge & dash / weapon block / place block (bridge)'], ['F', 'Place block (PvP build arenas)'], ['G', 'Break block (PvP build arenas)']].map((r) => '<tr><td style="width:44%"><kbd>' + r[0] + '</kbd></td><td>' + r[1] + '</td></tr>').join('') +
       '</table><p class="sub" style="margin-top:12px">Sprint jumps carry the most distance. In PvP, hit while falling for a crit, and reset your sprint with a W-tap to keep strong knockback. Spear lunges at targets in front; the hook pulls rivals toward you. In races, hits only bump rivals. Sneak blocks you from walking off ledges.</p></div>' +
       '<div class="foot"><span class="spacer"></span><button class="ghost" id="ctrlBack">Back</button></div></div></div>';
     $('ctrlBack').onclick = back;

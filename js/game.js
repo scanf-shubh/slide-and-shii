@@ -68,7 +68,7 @@
     mode: null, matchPlayers: [], myIndex: 0, scores: {}, raceResults: [], remotes: new Map(), bot: null, me: null,
     keys: {}, jumpPressed: false, sprintDouble: false, lastW: 0,
     mouseLeft: false, mouseRight: false, attackCD: 0, attackBuffer: 0, spearCharge: 0, spearChargeActive: false, useCD: 0, swing: 0, stepT: 0, boostCD: 0,
-    selected: 0, thirdPerson: false, hadLock: false, pauseFrom: null, pauseStart: 0,
+    selected: 0, thirdPerson: false, hadLock: false, pauseFrom: null, pauseStart: 0, inspectId: null,
     moveT: 0, acc: 0, hudAcc: 0, last: 0, lastStateSent: 0, lastSolo: null, currentSkin: 'steve',
     renderScale: 1, perfT: 0, perfN: 0,
     hitPause: 0, shake: 0, shakeT: 0, shakeDur: 0.18, impactFlash: 0, prevLocal: null,
@@ -142,7 +142,7 @@
       this.last = performance.now();
       requestAnimationFrame((t) => this.loop(t));
 
-      const done = () => { VOX.UI.hideLoading(); VOX.UI.showMenu(); };
+      const done = () => { VOX.UI.hideLoading(); VOX.UI.showMenu(); const roomCode = this.roomCodeFromLocation(); if (roomCode) setTimeout(() => { if (this.state === 'menu') this.joinRoom(roomCode); }, 350); };
       this.net.detectServer().then((ok) => { this.serverAvailable = !!ok; done(); }).catch(done);
     },
 
@@ -171,6 +171,7 @@
       });
       document.addEventListener('keydown', (e) => this.onKey(e, true));
       document.addEventListener('keyup', (e) => this.onKey(e, false));
+      this.renderer.domElement.addEventListener('wheel', (e) => this.onWheel(e), { passive: true });
       global.addEventListener('blur', () => {
         this.keys = {}; this.jumpPressed = false; this.mouseLeft = false; this.mouseRight = false;
         this.lookReady = false;
@@ -225,6 +226,44 @@
       this.me.pitch = this.lookPitch;
     },
 
+    pickInspectTarget() {
+      const candidates = [];
+      const add = (e) => {
+        if (!e || e.id === this.myId || e.dead || e.finished) return;
+        candidates.push(e);
+      };
+      if (this.mode === 'race') {
+        this.remotes.forEach((e) => add(e));
+        if (this.bot && this.bot.id !== this.myId) add(this.bot);
+      } else if (this.mode === 'bot') {
+        add(this.bot);
+      }
+      const target = candidates[0] || null;
+      this.inspectId = target ? target.id : null;
+      return this.inspectId;
+    },
+
+    onWheel(e) {
+      if (this.state !== 'playing' && this.state !== 'countdown') return;
+      const dir = e.deltaY > 0 ? 1 : -1;
+      let n = this.selected + dir;
+      if (this.mode === 'bridge') {
+        n = ((n % HOTBAR.length) + HOTBAR.length) % HOTBAR.length;
+        if (n !== this.selected) { this.selected = n; this.updateHeldSlot(); }
+        return;
+      }
+      n = ((n % WEAPON_SLOTS.length) + WEAPON_SLOTS.length) % WEAPON_SLOTS.length;
+      if (n === this.selected) return;
+      this.selected = n;
+      if (this.me) {
+        this.me.weapon = WEAPON_SLOTS[n].id;
+        this.cancelSpearCharge();
+        this.updateHeldSlot();
+        this.buildHud(performance.now());
+        VOX.UI.updateHUD(this);
+      }
+    },
+
     onKey(e, down) {
       const tag = (e.target && e.target.tagName) || '';
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
@@ -266,6 +305,9 @@
       if (k === 'KeyE' && this.state === 'playing') {
         this.grappleHeld = true;
         this.startGrapple();
+      }
+      if (k === 'KeyI' && this.state === 'playing') {
+        this.inspectId = this.pickInspectTarget();
       }
       if (k.indexOf('Digit') === 0) {
         const n = +k.slice(5) - 1;
@@ -933,18 +975,28 @@
           continue;
         }
         const dir = { x: a.vx / speed, y: a.vy / speed, z: a.vz / speed };
-        const worldHit = P.raycastWorld(this.pworld, { x: a.x, y: a.y, z: a.z }, dir, speed, { includeWalls: true });
+        const travel = Math.max(0.1, a.ttl * (w.speed / 60));
+        const worldHit = P.raycastWorld(this.pworld, { x: a.x, y: a.y, z: a.z }, dir, travel, { includeWalls: true });
+        const wallHit = worldHit && worldHit.t <= travel ? worldHit : null;
         let hitT = worldHit ? worldHit.t : Infinity;
         let target = null;
         if (!a.remote) {
           for (const entry of this.remotes.values()) {
             if (entry.dead || !this.isEnemy(entry)) continue;
-            const t = P.raycastPlayer({ x: a.x, y: a.y, z: a.z }, dir, entry.st, speed);
+            const t = C.hitTest({ x: a.x, y: a.y, z: a.z }, dir, entry.st, travel, w.cone);
             if (t >= 0 && t < hitT) {
               hitT = t;
               target = entry;
             }
           }
+        }
+        if (wallHit && wallHit.t <= hitT) {
+          a.x += dir.x * hitT;
+          a.y += dir.y * hitT;
+          a.z += dir.z * hitT;
+          this.world.spark(a.x, a.y, a.z, 0xe9eff7, 5, 1.8);
+          this.finishArrow(a, true);
+          continue;
         }
         if (target) {
           a.x += dir.x * hitT;
@@ -955,7 +1007,7 @@
           this.finishArrow(a, true);
           continue;
         }
-        if (worldHit && hitT <= speed) {
+        if (worldHit && worldHit.t <= travel) {
           a.x += dir.x * hitT;
           a.y += dir.y * hitT;
           a.z += dir.z * hitT;
@@ -1671,6 +1723,7 @@
       this.raceResults = [];
       this.placedCount = 0;
       this.selected = 0;
+      this.inspectId = null;
       this.swing = 0;
       this.attackCD = 0;
       this.attackBuffer = 0;
@@ -1914,6 +1967,18 @@
     },
 
     isHost() { return !!this.room && this.room.hostId === this.myId; },
+
+    roomCodeFromLocation() {
+      const raw = new URLSearchParams(global.location.search).get('room') || (global.location.hash || '').replace(/^#/, '');
+      const code = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (!code || code.length < 3 || code.length > 8) return null;
+      return code;
+    },
+
+    inviteLink() {
+      if (!this.room) return '';
+      return global.location.origin + global.location.pathname + '?room=' + String(this.room.code).toUpperCase();
+    },
 
     roomSnapshot() {
       if (!this.room) return null;
@@ -2564,6 +2629,7 @@
       }
       this.attackBuffer = 0;
       this.cancelSpearCharge();
+      this.inspectId = null;
       this.grappleHeld = false;
       this.slidePressed = false;
       this.me = null;
@@ -2851,10 +2917,21 @@
         bobY = Math.abs(Math.sin(t)) * 0.016 * Math.min(1, speed / 7);
       }
       this.updateGrappleVisual(rp);
-      if (!this.thirdPerson) {
+      if (this.inspectId) {
+        const inspectTarget = this.remotes.get(this.inspectId) || (this.mode === 'bot' && this.bot && this.bot.id === this.inspectId ? this.bot : null);
+        if (inspectTarget && !inspectTarget.dead && !inspectTarget.finished) {
+          const it = inspectTarget.cur || inspectTarget.st;
+          const inspectEyeY = it.y + (it.slideT > 0 ? 1.02 : 0) + 1.62;
+          this.camera.position.set(it.x, inspectEyeY, it.z);
+          this.camera.rotation.set(inspectTarget.pitch || 0, inspectTarget.yaw || 0, 0);
+        } else {
+          this.inspectId = null;
+        }
+      }
+      if (!this.inspectId && !this.thirdPerson) {
         this.camera.position.set(rp.x + bobX, eyeY + bobY, rp.z);
         this.camera.rotation.set(me.pitch, me.yaw, sliding ? -0.06 : 0);
-      } else {
+      } else if (!this.inspectId && this.thirdPerson) {
         const dir = C.dirFrom(me.yaw, me.pitch);
         const tx = rp.x, ty = eyeY - 0.2, tz = rp.z;
         this.camera.position.set(tx - dir.x * 4.2, ty - dir.y * 4.2 + 0.9, tz - dir.z * 4.2);
