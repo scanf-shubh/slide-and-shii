@@ -76,6 +76,24 @@
       case 'spear':
         tone(190, 0.09, 'triangle', 0.05, 310);
         break;
+      case 'spearCharge':
+        tone(120, 0.16, 'sawtooth', 0.04, 260);
+        break;
+      case 'spearDash':
+        tone(260, 0.14, 'triangle', 0.08, 760);
+        tone(90, 0.2, 'sine', 0.12, 45, 0.02);
+        break;
+      case 'bow':
+        tone(720, 0.045, 'triangle', 0.055, 380);
+        tone(240, 0.08, 'sine', 0.045, 120, 0.01);
+        break;
+      case 'arrow':
+        tone(380, 0.055, 'sawtooth', 0.035, 620);
+        break;
+      case 'hookHit':
+        tone(300, 0.08, 'square', 0.08, 160);
+        tone(620, 0.1, 'triangle', 0.05, 260, 0.02);
+        break;
       case 'grapple':
         tone(520, 0.08, 'triangle', 0.08, 920);
         tone(260, 0.14, 'sine', 0.06, 120, 0.03);

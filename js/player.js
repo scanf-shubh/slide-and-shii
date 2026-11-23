@@ -51,6 +51,40 @@
     return g;
   }
 
+  function makeVoxelBow() {
+    const g = new THREE.Group();
+    const addPart = (w, h, d, x, y, z, col, rx) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color: col }));
+      m.position.set(x, y, z);
+      if (rx) m.rotation.x = rx;
+      g.add(m);
+      return m;
+    };
+    addPart(0.07, 0.28, 0.07, 0, 0, -0.1, 0x7a512d);
+    addPart(0.06, 0.34, 0.06, 0, 0.27, -0.2, 0x936b3c, -0.38);
+    addPart(0.06, 0.34, 0.06, 0, -0.27, -0.2, 0x936b3c, 0.38);
+    addPart(0.05, 0.08, 0.05, 0, 0.44, -0.12, 0xd8dee6);
+    addPart(0.05, 0.08, 0.05, 0, -0.44, -0.12, 0xd8dee6);
+    addPart(0.018, 0.86, 0.018, 0, 0, -0.14, 0xe9eff7);
+    addPart(0.11, 0.05, 0.08, 0, 0, -0.02, 0x35e0e8);
+    return g;
+  }
+
+  function makeArrow() {
+    const g = new THREE.Group();
+    const addPart = (w, h, d, x, y, z, col) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color: col }));
+      m.position.set(x, y, z);
+      g.add(m);
+      return m;
+    };
+    addPart(0.035, 0.035, 0.78, 0, 0, -0.39, 0x936b3c);
+    addPart(0.09, 0.09, 0.13, 0, 0, -0.84, 0xd8dee6);
+    addPart(0.14, 0.025, 0.14, 0, 0, 0.01, 0xe9eff7);
+    addPart(0.025, 0.14, 0.14, 0, 0, 0.01, 0xe9eff7);
+    return g;
+  }
+
   function makeGrappleHook() {
     const g = new THREE.Group();
     const addPart = (w, h, d, x, y, z, col) => {
@@ -211,6 +245,12 @@
     spear.visible = false;
     handAnchor.add(spear);
 
+    const bow = makeVoxelBow();
+    bow.rotation.x = Math.PI * 0.42;
+    bow.position.set(0, -0.02, -0.08);
+    bow.visible = false;
+    handAnchor.add(bow);
+
     const hook = makeGrappleHook();
     hook.rotation.x = Math.PI * 0.38;
     hook.position.set(0, -0.02, -0.08);
@@ -290,6 +330,7 @@
       rightLegPivot,
       sword,
       spear,
+      bow,
       hook,
       heldBlock,
       gapple,
@@ -321,6 +362,7 @@
       setHeldSlot(slot, blockType) {
         sword.visible = false;
         spear.visible = false;
+        bow.visible = false;
         hook.visible = false;
         heldBlock.visible = slot === 1;
         gapple.visible = slot === 2;
@@ -334,6 +376,7 @@
         this.weapon = id || 'sword';
         sword.visible = this.weapon === 'sword';
         spear.visible = this.weapon === 'spear';
+        bow.visible = this.weapon === 'bow';
         hook.visible = this.weapon === 'grapple';
         heldBlock.visible = false;
         gapple.visible = false;
@@ -400,11 +443,19 @@
             rightArmPivot.rotation.x = 1.1 - s * 0.7;
             rightArmPivot.rotation.y = -0.12;
             rightArmPivot.rotation.z = 0.08;
+          } else if (w === 'bow') {
+            rightArmPivot.rotation.x = 1.02 - s * 0.3;
+            rightArmPivot.rotation.y = -0.22;
+            rightArmPivot.rotation.z = -0.05;
           } else {
             rightArmPivot.rotation.x = 0.4 + s * 1.45;
             rightArmPivot.rotation.y = -s * 0.45;
             rightArmPivot.rotation.z = s * 0.25;
           }
+        } else if (w === 'bow') {
+          rightArmPivot.rotation.x = 1.02;
+          rightArmPivot.rotation.y = -0.22;
+          rightArmPivot.rotation.z = -0.05;
         } else if (w === 'grapple') {
           rightArmPivot.rotation.x = 0.95 + (ground ? 0 : 0.12);
           rightArmPivot.rotation.y = -0.08;
@@ -452,6 +503,12 @@
     spear.visible = false;
     holder.add(spear);
 
+    const bow = makeVoxelBow();
+    bow.position.set(-0.04, 0.14, -0.28);
+    bow.rotation.set(0.22, 0.18, -0.08);
+    bow.visible = false;
+    holder.add(bow);
+
     const hook = makeGrappleHook();
     hook.position.set(-0.05, 0.12, -0.24);
     hook.rotation.set(0.72, 0.22, -0.08);
@@ -488,6 +545,7 @@
         this.weapon = id || 'sword';
         sword.visible = this.weapon === 'sword';
         spear.visible = this.weapon === 'spear';
+        bow.visible = this.weapon === 'bow';
         hook.visible = this.weapon === 'grapple';
         blockMesh.visible = false;
         gapple.visible = false;
@@ -495,6 +553,7 @@
       setSlot(slot, blockType) {
         sword.visible = false;
         spear.visible = false;
+        bow.visible = false;
         hook.visible = false;
         blockMesh.visible = slot === 1;
         gapple.visible = slot === 2;
@@ -524,14 +583,15 @@
         } else {
           const sw = Math.sin(swing * Math.PI);
           const spear = this.weapon === 'spear';
+          const bow = this.weapon === 'bow';
           const hook = this.weapon === 'grapple';
           holder.position.set(
-            0.34 + bobX - sw * (spear ? 0.28 : 0.16),
+            0.34 + bobX - sw * (spear ? 0.28 : bow ? 0.1 : 0.16),
             -0.34 + bobY - sw * (spear ? 0.02 : 0.06) + (slide ? 0.18 : 0),
-            -0.54 - sw * (spear ? 0.24 : 0.14)
+            -0.54 - sw * (spear ? 0.24 : bow ? 0.08 : 0.14)
           );
           holder.rotation.set(
-            (spear ? -0.35 : hook ? -0.18 : -sw * 1.15) + (sprint ? 0.18 : 0) + (slide ? 0.28 : 0),
+            (spear ? -0.35 : bow ? -0.08 : hook ? -0.18 : -sw * 1.15) + (sprint ? 0.18 : 0) + (slide ? 0.28 : 0),
             sw * 0.45,
             sw * 0.35
           );
@@ -545,6 +605,8 @@
     createViewmodel,
     makeVoxelSword,
     makeVoxelSpear,
+    makeVoxelBow,
+    makeArrow,
     makeGrappleHook,
   };
 })(window);

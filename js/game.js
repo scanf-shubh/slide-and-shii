@@ -6,7 +6,7 @@
   const C = VOX.Combat;
   const LG = VOX.LevelGen;
 
-  const PVP_ARENAS = ['sky', 'courtyard', 'sumo', 'bridge', 'inferno', 'frostbite'];
+  const PVP_ARENAS = ['sky', 'courtyard', 'sumo', 'bridge', 'inferno', 'frostbite', 'citadel', 'dunes', 'field'];
   const HOTBAR = [
     { type: 'wool_red', label: 'Wool', color: '#c8372d' },
     { type: 'planks', label: 'Plank', color: '#b98a53' },
@@ -21,6 +21,7 @@
     { id: 'sword', label: '1 Sword', color: '#4ae8f5' },
     { id: 'spear', label: '2 Spear', color: '#d8dee6' },
     { id: 'grapple', label: '3 Hook', color: '#ffd23f' },
+    { id: 'bow', label: '4 Bow', color: '#8be02a' },
   ];
 
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -59,20 +60,21 @@
   const App = {
     state: 'loading',
     profile: load('voxarena.profile', { name: 'Player' + ((Math.random() * 90 + 10) | 0), skin: 'steve', color: '#35e0e8' }),
-    solo: load('voxarena.solo', { difficulty: 'standard', theme: '' }),
+    solo: load('voxarena.solo', { difficulty: 'standard', theme: '', arena: '' }),
     settings: load('voxarena.settings', { sens: 1, fov: 75, vol: 0.6, quality: 'high', xh: true, fovk: true, tp: false, invert: false, bob: true }),
     stats: load('voxarena.stats', { runs: 0, finishes: 0, bestTime: 0, kills: 0, deaths: 0, bestKills: 0 }),
 
     myId: 'local', room: null, netMode: 'offline', serverAvailable: false, ping: 0,
     mode: null, matchPlayers: [], myIndex: 0, scores: {}, raceResults: [], remotes: new Map(), bot: null, me: null,
     keys: {}, jumpPressed: false, sprintDouble: false, lastW: 0,
-    mouseLeft: false, mouseRight: false, attackCD: 0, useCD: 0, swing: 0, stepT: 0, boostCD: 0,
+    mouseLeft: false, mouseRight: false, attackCD: 0, attackBuffer: 0, spearCharge: 0, spearChargeActive: false, useCD: 0, swing: 0, stepT: 0, boostCD: 0,
     selected: 0, thirdPerson: false, hadLock: false, pauseFrom: null, pauseStart: 0,
     moveT: 0, acc: 0, hudAcc: 0, last: 0, lastStateSent: 0, lastSolo: null, currentSkin: 'steve',
     renderScale: 1, perfT: 0, perfN: 0,
     hitPause: 0, shake: 0, shakeT: 0, shakeDur: 0.18, impactFlash: 0, prevLocal: null,
     lookYaw: 0, lookPitch: 0, targetYaw: 0, targetPitch: 0, lookReady: false, lookIgnoreUntil: 0,
     slidePressed: false, grappleHeld: false, grappleCD: 0, grappleRope: null, swingWeapon: 'sword',
+    playerHook: null, arrows: [], arrowSeq: 0,
 
     saveProfile() {
       store('voxarena.profile', this.profile);
@@ -273,6 +275,7 @@
             this.updateHeldSlot();
           }
         } else if (n >= 0 && n < WEAPON_SLOTS.length && this.me) {
+          if (this.me.weapon !== WEAPON_SLOTS[n].id) this.cancelSpearCharge();
           this.me.weapon = WEAPON_SLOTS[n].id;
           this.updateHeldSlot();
           this.buildHud(performance.now());
@@ -310,18 +313,24 @@
       if (this.state !== 'playing' || !this.me || this.me.dead || this.me.finished) return;
       if (e.button === 0) {
         this.mouseLeft = true;
+        if (this.spearChargeActive) this.cancelSpearCharge();
         if (this.mode === 'bridge') this.breakBlock();
         else if (this.me.weapon === 'grapple') this.startGrapple();
-        else if (this.isPvp()) this.tryAttack();
+        else if (this.me.weapon === 'bow') this.requestAttack();
+        else if (this.canFight()) this.requestAttack();
       } else if (e.button === 2) {
         this.mouseRight = true;
         if (this.mode === 'bridge') this.placeBlock();
+        else if (this.me.weapon === 'spear' && this.canFight()) this.startSpearCharge();
       }
     },
 
     onMouseUp(e) {
       if (e.button === 0) this.mouseLeft = false;
-      if (e.button === 2) this.mouseRight = false;
+      if (e.button === 2) {
+        this.mouseRight = false;
+        if (this.spearChargeActive) this.releaseSpearCharge();
+      }
     },
 
     loop(now) {
@@ -369,7 +378,13 @@
         this.prevLocal = { x: st.x, y: st.y, z: st.z };
         return;
       }
-      if (!this.me.dead && !this.me.finished) this.tickLocal(dt);
+      if (this.spearChargeActive && (this.me.dead || this.me.finished)) this.cancelSpearCharge();
+      if (!this.me.dead && !this.me.finished) {
+        if (this.me.hookPull) this.updateHookPull();
+        this.tickLocal(dt);
+      }
+      if (this.playerHook) this.tickPlayerHook();
+      this.tickArrows();
       if (this.mode === 'bot' && this.bot && !this.bot.dead) this.tickBot(dt);
       for (const entry of this.remotes.values()) {
         if (entry !== this.bot) C.tickStatus(entry);
@@ -382,6 +397,13 @@
       if (this.useCD > 0) this.useCD--;
       if (this.boostCD > 0) this.boostCD--;
       if (this.grappleCD > 0) this.grappleCD--;
+      if (this.attackBuffer > 0) {
+        this.attackBuffer--;
+        if (this.attackCD <= 0) {
+          this.attackBuffer = 0;
+          this.tryAttack();
+        }
+      }
       if (this.swing > 0) this.swing = Math.max(0, this.swing - dt * 5);
     },
 
@@ -414,7 +436,14 @@
 
     tickLocal(dt) {
       const me = this.me, st = me.st;
-      const block = (this.mode === 'duel' || this.mode === 'team' || this.mode === 'bot') && this.mouseRight;
+      if (this.spearChargeActive) {
+        if (!this.mouseRight || me.weapon !== 'spear' || !this.canFight() || this.attackCD > 0) {
+          this.cancelSpearCharge();
+        } else {
+          this.spearCharge = Math.min(C.weapon('spear').chargeMax, this.spearCharge + 1);
+        }
+      }
+      const block = (this.mode === 'duel' || this.mode === 'team' || this.mode === 'bot') && this.mouseRight && me.weapon !== 'spear';
       me.block = block;
       const inp = {
         f: !!this.keys.KeyW, b: !!this.keys.KeyS, l: !!this.keys.KeyA, r: !!this.keys.KeyD,
@@ -551,6 +580,7 @@
     raceFall(hazard) {
       const me = this.me;
       if (!me || me.finished) return;
+      this.cancelSpearCharge();
       me.falls = (me.falls || 0) + 1;
       VOX.Audio.play(hazard ? 'hurt' : 'fall');
       this.world.spark(me.st.x, me.st.y + 0.4, me.st.z, hazard ? 0xff7a30 : 0x9fd8ff, 10, 3);
@@ -561,12 +591,17 @@
     },
 
     bridgeFall() {
+      this.cancelSpearCharge();
       VOX.Audio.play('fall');
       this.placeAtSpawn();
       VOX.UI.toast('Back to the bridge', '#8be02a');
     },
 
     isPvp() { return this.mode === 'duel' || this.mode === 'team' || this.mode === 'bot'; },
+
+    isRace() { return this.mode === 'race'; },
+
+    canFight() { return this.isPvp() || this.isRace(); },
 
     isEnemy(p) {
       if (!this.me) return false;
@@ -584,13 +619,32 @@
       }
     },
 
+    requestAttack() {
+      const me = this.me;
+      if (!me || me.dead || me.finished || this.state !== 'playing' || !this.canFight()) return;
+      if (this.attackCD > 0) {
+        this.attackBuffer = 10;
+        return;
+      }
+      this.tryAttack();
+    },
+
     tryAttack() {
       const me = this.me;
       if (!me || me.dead || me.finished || this.attackCD > 0) return;
       const w = C.weapon(me.weapon);
+      if (w.id === 'bow') {
+        this.fireBow();
+        return;
+      }
       this.attackCD = w.cooldown;
+      this.attackBuffer = 0;
       this.swing = 1;
       VOX.Audio.play(w.id === 'spear' ? 'spear' : 'swing');
+      if (w.id === 'spear') {
+        const target = this.pickSpearTarget(w);
+        if (target) this.spearDash(target, w);
+      }
       const eye = C.eye(me.st, !!this.keys.ShiftLeft);
       const dir = C.dirFrom(me.yaw, me.pitch);
       const hits = [];
@@ -601,19 +655,143 @@
       }
       hits.sort((a, b) => a.t - b.t);
       for (let i = 0; i < Math.min(w.maxHits, hits.length); i++) this.hitTarget(hits[i].entry, w);
-      if (w.id !== 'grapple') {
-        me.st.vx -= Math.sin(me.yaw) * 0.012;
-        me.st.vz -= Math.cos(me.yaw) * 0.012;
-      }
+      me.st.vx -= Math.sin(me.yaw) * 0.012;
+      me.st.vz -= Math.cos(me.yaw) * 0.012;
     },
 
-    hitTarget(target, weapon) {
+    pickSpearTarget(w, range, cone) {
+      const me = this.me;
+      const eye = C.eye(me.st, !!this.keys.ShiftLeft);
+      const dir = C.dirFrom(me.yaw, me.pitch);
+      let best = null;
+      const maxRange = range || w.dashRange || w.reach;
+      const maxCone = cone === undefined ? Math.max(w.cone, 0.82) : cone;
+      for (const entry of this.remotes.values()) {
+        if (entry.dead || !this.isEnemy(entry)) continue;
+        const t = C.hitTest(eye, dir, entry.st, maxRange, maxCone);
+        if (t < 0 || this.lineBlocked(eye, dir, t - 0.3)) continue;
+        if (!best || t < best.t) best = { entry: entry, t: t };
+      }
+      return best ? best.entry : null;
+    },
+
+    startSpearCharge() {
+      const me = this.me;
+      if (!me || me.dead || me.finished || this.state !== 'playing') return;
+      if (!this.canFight() || me.weapon !== 'spear' || this.attackCD > 0) return;
+      if (this.spearChargeActive) return;
+      this.spearChargeActive = true;
+      this.spearCharge = 0;
+      VOX.Audio.play('spearCharge');
+    },
+
+    cancelSpearCharge() {
+      this.spearChargeActive = false;
+      this.spearCharge = 0;
+    },
+
+    releaseSpearCharge() {
+      if (!this.spearChargeActive) return;
+      const me = this.me;
+      const w = C.weapon('spear');
+      const charge = this.spearCharge;
+      this.spearChargeActive = false;
+      this.spearCharge = 0;
+      if (!me || me.dead || me.finished || this.state !== 'playing' || !this.canFight() || me.weapon !== 'spear') return;
+      if (charge < w.chargeMin) {
+        VOX.Audio.play('miss');
+        return;
+      }
+      const target = this.pickSpearTarget(w, w.chargeRange, 0.74);
+      if (!target) {
+        VOX.Audio.play('miss');
+        return;
+      }
+      const ratio = clamp((charge - w.chargeMin) / Math.max(1, w.chargeMax - w.chargeMin), 0, 1);
+      const hitW = {
+        id: 'spear', reach: w.reach, damage: Math.round(w.damage + (w.chargeDamage - w.damage) * ratio),
+        kb: w.kb + (w.chargeKb - w.kb) * ratio, block: w.block,
+      };
+      this.attackCD = w.chargeCooldown;
+      this.attackBuffer = 0;
+      this.swing = 1;
+      VOX.Audio.play('spearDash');
+      this.spearChargeDash(target, hitW, ratio);
+    },
+
+    spearChargeDash(target, hitW, ratio) {
+      const me = this.me, st = me.st;
+      const dx = target.st.x - st.x, dz = target.st.z - st.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < 0.001) return;
+      const ux = dx / dist, uz = dz / dist;
+      const stop = 1.35;
+      const step = 0.18;
+      const maxSteps = Math.min(70, Math.ceil(Math.max(0, dist - stop) / step));
+      let x = st.x, z = st.z, moved = false;
+      for (let i = 0; i < maxSteps; i++) {
+        const nx = x + ux * step, nz = z + uz * step;
+        if (P.boxHit(this.pworld, nx, st.y, nz)) break;
+        x = nx;
+        z = nz;
+        moved = true;
+        if (Math.hypot(target.st.x - x, target.st.z - z) <= stop) break;
+      }
+      if (moved) {
+        st.x = x;
+        st.z = z;
+        st.vx += ux * (0.06 + ratio * 0.05);
+        st.vz += uz * (0.06 + ratio * 0.05);
+        st.vy = Math.max(st.vy, 0.018);
+        this.world.spark(x, st.y + 0.8, z, 0xd8dee6, 10, 3.2);
+      }
+      const remain = Math.hypot(target.st.x - st.x, target.st.z - st.z);
+      if (remain > Math.min(hitW.reach, 3.8)) return;
+      const yaw = Math.atan2(-(target.st.x - st.x), -(target.st.z - st.z));
+      this.hitTarget(target, hitW, yaw);
+    },
+
+    spearDash(target) {
+      const me = this.me, st = me.st;
+      const dx = target.st.x - st.x, dz = target.st.z - st.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist <= 1.55) return;
+      const ux = dx / dist, uz = dz / dist;
+      const stop = 1.45;
+      const step = 0.16;
+      const maxSteps = Math.min(36, Math.ceil((dist - stop) / step));
+      let x = st.x, z = st.z, moved = false;
+      for (let i = 0; i < maxSteps; i++) {
+        const nx = x + ux * step, nz = z + uz * step;
+        if (P.boxHit(this.pworld, nx, st.y, nz)) break;
+        x = nx;
+        z = nz;
+        moved = true;
+        if (Math.hypot(target.st.x - x, target.st.z - z) <= stop) break;
+      }
+      if (!moved) return;
+      st.x = x;
+      st.z = z;
+      st.vx += ux * 0.055;
+      st.vz += uz * 0.055;
+      st.vy = Math.max(st.vy, 0.015);
+      this.world.spark(x, st.y + 0.8, z, 0xd8dee6, 8, 2.8);
+    },
+
+    lineBlocked(origin, dir, maxDist) {
+      if (maxDist <= 0) return false;
+      const hit = P.raycastWorld(this.pworld, origin, dir, maxDist, { includeWalls: true });
+      return !!(hit && hit.t < maxDist - 0.25);
+    },
+
+    hitTarget(target, weapon, yawOverride) {
       const me = this.me;
       const w = weapon || C.weapon(me.weapon);
+      const yaw = yawOverride === undefined ? me.yaw : yawOverride;
       const crit = C.crit(me.st);
       const dmg = P.dmgOf(w.damage, crit);
       let kb = w.kb;
-      if (me.st.sprint && me.st.kb) { kb *= 2.4; me.st.kb = false; }
+      if (me.st.sprint && me.st.kb) { kb *= 1.9; me.st.kb = false; }
       if (crit) kb *= 1.15;
       this.world.spark(target.st.x, target.st.y + 1.1, target.st.z, crit ? 0xffd23f : 0xff5c5c, crit ? 12 : 7, 3);
       target.hitFlash = 12;
@@ -621,16 +799,29 @@
       this.impactFrames(crit, true);
       VOX.Audio.play('impact');
 
+      if (this.isRace()) {
+        const kx = Math.sin(yaw) * kb, kz = Math.cos(yaw) * kb;
+        target.st.vx -= kx;
+        target.st.vz -= kz;
+        target.st.vy = 0.11;
+        target.lastAttacker = me.id;
+        if (this.multiplayer) {
+          this.net.send({ type: 'bump', victim: target.id, by: this.myId, kb: kb, yaw: yaw });
+        }
+        VOX.Audio.play(crit ? 'crit' : 'hit');
+        return;
+      }
+
       if (this.multiplayer) {
-        this.net.send({ type: 'hit', victim: target.id, dmg: dmg, crit: crit, kb: kb, yaw: me.yaw, by: this.myId, weapon: w.id });
+        this.net.send({ type: 'hit', victim: target.id, dmg: dmg, crit: crit, kb: kb, yaw: yaw, by: this.myId, weapon: w.id });
         VOX.Audio.play(crit ? 'crit' : 'hit');
         return;
       }
       const applied = C.applyDamage(target, dmg);
       if (applied > 0) {
         const st = target.st;
-        st.vx -= Math.sin(me.yaw) * kb;
-        st.vz -= Math.cos(me.yaw) * kb;
+        st.vx -= Math.sin(yaw) * kb;
+        st.vz -= Math.cos(yaw) * kb;
         st.vy = 0.135;
         target.lastAttacker = me.id;
         target.lastWeapon = w.id;
@@ -644,7 +835,7 @@
       if (!me || me.dead || me.finished || this.state !== 'playing') return;
       const w = C.weapon(msg.weapon);
       let dmg = msg.dmg || w.damage || C.BASE_DAMAGE;
-      if (me.block) dmg = Math.max(1, Math.round(dmg * (me.weapon === 'spear' ? C.weapons.spear.block : C.SWORD_BLOCK_MULT)));
+      if (me.block) dmg = Math.max(1, Math.round(dmg * (C.weapon(me.weapon).block || C.SWORD_BLOCK_MULT)));
       const applied = C.applyDamage(me, dmg);
       if (applied <= 0) return;
       me.lastAttacker = msg.by || null;
@@ -661,9 +852,201 @@
       if (me.hp <= 0) this.pvpDeath('kill', msg.by);
     },
 
+    receiveBump(msg) {
+      const me = this.me;
+      if (!me || me.dead || me.finished || !this.isRace() || this.state !== 'playing') return;
+      const kb = msg.kb || 0.1;
+      me.st.vx -= Math.sin(msg.yaw || 0) * kb;
+      me.st.vz -= Math.cos(msg.yaw || 0) * kb;
+      me.st.vy = 0.11;
+      me.hitFlash = 12;
+      me.lastAttacker = msg.by || null;
+      this.impactFrames(false, false);
+      VOX.Audio.play('hit');
+      this.world.spark(me.st.x, me.st.y + 1.2, me.st.z, 0xffd23f, 7, 3);
+    },
+
+    fireBow() {
+      const me = this.me;
+      if (!me || me.dead || me.finished || this.state !== 'playing') return;
+      const w = C.weapon('bow');
+      this.attackCD = w.cooldown;
+      this.attackBuffer = 0;
+      this.swing = 1;
+      VOX.Audio.play('bow');
+      const eye = C.eye(me.st, !!this.keys.ShiftLeft);
+      const dir = C.dirFrom(me.yaw, me.pitch);
+      const a = {
+        aid: this.myId + ':' + (++this.arrowSeq),
+        x: eye.x + dir.x * 0.55,
+        y: eye.y + dir.y * 0.55,
+        z: eye.z + dir.z * 0.55,
+        vx: dir.x * w.speed,
+        vy: dir.y * w.speed,
+        vz: dir.z * w.speed,
+        ttl: w.ttl,
+        owner: this.myId,
+        remote: false,
+        mesh: null,
+      };
+      this.spawnArrow(a);
+      this.arrows.push(a);
+      if (this.multiplayer) {
+        this.net.send({
+          type: 'arrow', aid: a.aid, owner: this.myId,
+          x: a.x, y: a.y, z: a.z, vx: a.vx, vy: a.vy, vz: a.vz, ttl: a.ttl,
+        });
+      }
+    },
+
+    spawnArrow(a) {
+      const mesh = VOX.Player.makeArrow();
+      mesh.scale.setScalar(1.08);
+      mesh.rotation.order = 'YXZ';
+      this.scene.add(mesh);
+      a.mesh = mesh;
+      this.syncArrowMesh(a);
+    },
+
+    syncArrowMesh(a) {
+      if (!a.mesh) return;
+      a.mesh.position.set(a.x, a.y, a.z);
+      const speed = Math.hypot(a.vx, a.vy, a.vz);
+      if (speed > 1e-5) {
+        a.mesh.rotation.y = Math.atan2(-a.vx, -a.vz);
+        a.mesh.rotation.x = Math.asin(clamp(a.vy / speed, -1, 1));
+      }
+    },
+
+    tickArrows() {
+      if (!this.arrows || !this.arrows.length) return;
+      const w = C.weapon('bow');
+      for (let i = this.arrows.length - 1; i >= 0; i--) {
+        const a = this.arrows[i];
+        if (--a.ttl <= 0) {
+          this.finishArrow(a, true);
+          continue;
+        }
+        const speed = Math.hypot(a.vx, a.vy, a.vz);
+        if (speed < 0.01) {
+          this.finishArrow(a, true);
+          continue;
+        }
+        const dir = { x: a.vx / speed, y: a.vy / speed, z: a.vz / speed };
+        const worldHit = P.raycastWorld(this.pworld, { x: a.x, y: a.y, z: a.z }, dir, speed, { includeWalls: true });
+        let hitT = worldHit ? worldHit.t : Infinity;
+        let target = null;
+        if (!a.remote) {
+          for (const entry of this.remotes.values()) {
+            if (entry.dead || !this.isEnemy(entry)) continue;
+            const t = P.raycastPlayer({ x: a.x, y: a.y, z: a.z }, dir, entry.st, speed);
+            if (t >= 0 && t < hitT) {
+              hitT = t;
+              target = entry;
+            }
+          }
+        }
+        if (target) {
+          a.x += dir.x * hitT;
+          a.y += dir.y * hitT;
+          a.z += dir.z * hitT;
+          this.syncArrowMesh(a);
+          this.arrowHit(target, a, w);
+          this.finishArrow(a, true);
+          continue;
+        }
+        if (worldHit && hitT <= speed) {
+          a.x += dir.x * hitT;
+          a.y += dir.y * hitT;
+          a.z += dir.z * hitT;
+          this.world.spark(a.x, a.y, a.z, 0xe9eff7, 5, 1.8);
+          this.finishArrow(a, true);
+          continue;
+        }
+        a.x += a.vx;
+        a.y += a.vy;
+        a.z += a.vz;
+        a.vy -= w.gravity;
+        this.syncArrowMesh(a);
+      }
+    },
+
+    arrowHit(target, a, w) {
+      const yaw = Math.atan2(-a.vx, -a.vz);
+      this.world.spark(target.st.x, target.st.y + 1.1, target.st.z, 0xffd23f, 7, 2.8);
+      target.hitFlash = 10;
+      this.impactFrames(false, true);
+      VOX.Audio.play('arrow');
+      if (this.isRace()) {
+        const kb = w.kb;
+        target.st.vx -= Math.sin(yaw) * kb;
+        target.st.vz -= Math.cos(yaw) * kb;
+        target.st.vy = 0.1;
+        if (this.multiplayer) {
+          this.net.send({ type: 'bump', victim: target.id, by: this.myId, kb: kb, yaw: yaw });
+        }
+        VOX.Audio.play('hit');
+        return;
+      }
+      if (this.multiplayer) {
+        this.net.send({
+          type: 'hit', victim: target.id, dmg: w.damage, crit: false,
+          kb: w.kb, yaw: yaw, by: this.myId, weapon: 'bow',
+        });
+        VOX.Audio.play('hit');
+        return;
+      }
+      const applied = C.applyDamage(target, w.damage);
+      if (applied > 0) {
+        target.st.vx -= Math.sin(yaw) * w.kb;
+        target.st.vz -= Math.cos(yaw) * w.kb;
+        target.st.vy = 0.11;
+        target.lastAttacker = this.myId;
+        target.lastWeapon = 'bow';
+        VOX.Audio.play('hit');
+        if (target.hp <= 0) this.onBotDeath(target);
+      } else VOX.Audio.play('hit');
+    },
+
+    finishArrow(a, notify) {
+      if (a.mesh) {
+        this.scene.remove(a.mesh);
+        a.mesh.traverse((o) => {
+          if (o.geometry) o.geometry.dispose();
+          if (o.material && o.material.dispose) o.material.dispose();
+        });
+        a.mesh = null;
+      }
+      const i = this.arrows.indexOf(a);
+      if (i >= 0) this.arrows.splice(i, 1);
+      if (notify && this.multiplayer && !a.remote) {
+        this.net.send({ type: 'arrow_end', aid: a.aid, owner: this.myId });
+      }
+    },
+
+    onRemoteArrow(msg) {
+      if (!msg || !msg.aid || msg.owner === this.myId) return;
+      if (this.arrows.some((a) => a.aid === msg.aid)) return;
+      const a = {
+        aid: msg.aid, x: msg.x, y: msg.y, z: msg.z,
+        vx: msg.vx || 0, vy: msg.vy || 0, vz: msg.vz || 0,
+        ttl: msg.ttl || 90, owner: msg.owner || msg.id, remote: true, mesh: null,
+      };
+      this.spawnArrow(a);
+      this.arrows.push(a);
+    },
+
+    onRemoteArrowEnd(msg) {
+      if (!msg || !msg.aid) return;
+      for (let i = this.arrows.length - 1; i >= 0; i--) {
+        if (this.arrows[i].aid === msg.aid) this.finishArrow(this.arrows[i], false);
+      }
+    },
+
     pvpDeath(cause, byId) {
       const me = this.me;
       if (!me || me.dead) return;
+      this.cancelSpearCharge();
       me.dead = true;
       me.hp = 0;
       me.deadUntil = performance.now() + 1500;
@@ -990,10 +1373,17 @@
 
     startGrapple() {
       const me = this.me;
-      if (!me || me.dead || me.finished || this.state !== 'playing' || me.st.grapple) return;
+      if (!me || me.dead || me.finished || this.state !== 'playing' || me.st.grapple || this.playerHook) return;
       if (this.grappleCD > 0) return;
       const eye = C.eye(me.st, !!this.keys.ShiftLeft);
       const dir = C.dirFrom(me.yaw, me.pitch);
+      if (this.canFight()) {
+        const target = this.pickHookTarget(eye, dir, 30);
+        if (target) {
+          this.startPlayerHook(target);
+          return;
+        }
+      }
       const hit = P.raycastWorld(this.pworld, eye, dir, 30);
       if (!hit) {
         this.grappleCD = 12;
@@ -1012,8 +1402,117 @@
       this.world.spark(px, py, pz, 0x35e0e8, 7, 2.5);
     },
 
+    pickHookTarget(eye, dir, maxDist) {
+      let best = null;
+      for (const entry of this.remotes.values()) {
+        if (entry.dead || !this.isEnemy(entry)) continue;
+        const t = C.hitTest(eye, dir, entry.st, maxDist, 0.9);
+        if (t < 0 || this.lineBlocked(eye, dir, t - 0.3)) continue;
+        if (!best || t < best.t) best = { entry: entry, t: t };
+      }
+      return best ? best.entry : null;
+    },
+
+    startPlayerHook(target) {
+      const me = this.me;
+      if (!me || !target) return;
+      const ttl = 32;
+      this.playerHook = { id: target.id, ttl: ttl };
+      this.grappleCD = ttl;
+      me.st.grapple = null;
+      if (this.grappleRope) this.grappleRope.visible = true;
+      VOX.Audio.play('hookHit');
+      this.world.spark(target.st.x, target.st.y + 1.1, target.st.z, 0x35e0e8, 9, 3);
+      if (this.multiplayer && target.id !== 'bot') {
+        this.net.send({
+          type: 'hook', victim: target.id, by: this.myId, ttl: ttl,
+          x: me.st.x, y: me.st.y + 1.1, z: me.st.z,
+        });
+      }
+    },
+
+    tickPlayerHook() {
+      const hook = this.playerHook;
+      if (!hook) return;
+      const me = this.me;
+      if (!me || this.state !== 'playing' || me.dead) {
+        this.releaseGrapple(false);
+        return;
+      }
+      hook.ttl--;
+      const target = this.remotes.get(hook.id);
+      if (!target || target.dead || hook.ttl <= 0) {
+        this.releaseGrapple();
+        return;
+      }
+      const tst = target.st;
+      const dx = me.st.x - tst.x;
+      const dy = (me.st.y + 1.1) - (tst.y + 1.1);
+      const dz = me.st.z - tst.z;
+      const dist = Math.hypot(dx, dy, dz);
+      if (dist > 1.35) {
+        const pull = 0.045 / Math.max(1, dist);
+        tst.vx += dx * pull;
+        tst.vz += dz * pull;
+        tst.vy += Math.max(-0.012, dy * pull * 0.6);
+      }
+    },
+
+    updateHookPull() {
+      const me = this.me;
+      if (!me || !me.hookPull) return;
+      if (this.state !== 'playing' || me.dead) { me.hookPull = null; return; }
+      const h = me.hookPull;
+      h.ttl--;
+      if (h.ttl <= 0) { me.hookPull = null; return; }
+      const src = this.remotes.get(h.by);
+      const sx = src ? src.st.x : h.x;
+      const sy = src ? src.st.y + 1.1 : h.y;
+      const sz = src ? src.st.z : h.z;
+      const dx = sx - me.st.x;
+      const dy = sy - (me.st.y + 1.1);
+      const dz = sz - me.st.z;
+      const dist = Math.hypot(dx, dy, dz);
+      if (dist > 1.2) {
+        const pull = 0.045 / Math.max(1, dist);
+        me.st.vx += dx * pull;
+        me.st.vz += dz * pull;
+        me.st.vy += Math.max(-0.012, dy * pull * 0.6);
+      }
+    },
+
+    receiveHook(msg) {
+      const me = this.me;
+      if (!me || me.dead || me.finished || this.state !== 'playing' || !this.canFight()) return;
+      if (!msg || msg.by === this.myId) return;
+      me.hookPull = {
+        by: msg.by || null,
+        x: Number.isFinite(msg.x) ? msg.x : me.st.x,
+        y: Number.isFinite(msg.y) ? msg.y : me.st.y + 1.1,
+        z: Number.isFinite(msg.z) ? msg.z : me.st.z,
+        ttl: Math.max(1, Math.min(60, msg.ttl || 32)),
+      };
+      me.hitFlash = 8;
+      VOX.Audio.play('hookHit');
+      this.world.spark(me.st.x, me.st.y + 1.1, me.st.z, 0x35e0e8, 7, 2.5);
+    },
+
+    receiveHookEnd(msg) {
+      const me = this.me;
+      if (!me || !me.hookPull) return;
+      if (msg && msg.by && me.hookPull.by && msg.by !== me.hookPull.by) return;
+      me.hookPull = null;
+    },
+
     releaseGrapple(cooldown) {
       const me = this.me;
+      if (this.playerHook) {
+        const hook = this.playerHook;
+        this.playerHook = null;
+        if (this.multiplayer && hook.id !== 'bot') {
+          this.net.send({ type: 'hook_end', victim: hook.id, by: this.myId });
+        }
+      }
       if (me && me.st) me.st.grapple = null;
       if (this.grappleRope) this.grappleRope.visible = false;
       if (cooldown !== false) this.grappleCD = Math.max(this.grappleCD || 0, 12);
@@ -1023,7 +1522,11 @@
       const me = this.me;
       const rope = this.grappleRope;
       if (!rope) return;
-      const g = me && me.st && me.st.grapple;
+      let g = me && me.st && me.st.grapple;
+      if (this.playerHook) {
+        const target = this.remotes.get(this.playerHook.id);
+        if (target && !target.dead) g = { x: target.st.x, y: target.st.y + 1.1, z: target.st.z };
+      }
       if (!g || this.state !== 'playing') { rope.visible = false; return; }
       const pos = rope.geometry.attributes.position;
       pos.setXYZ(0, rp.x, rp.y + 1.5, rp.z);
@@ -1052,7 +1555,35 @@
         si = (team === 0 ? 0 : 1) + (k > 0 ? 2 : 0);
       }
       const s = arena.spawns[si] || arena.spawns[0];
-      return { x: s.x, y: s.y, z: s.z, yaw: s.yaw || 0 };
+      const spawn = { x: s.x, y: s.y, z: s.z, yaw: s.yaw || 0 };
+      return this.isPvp() ? this.sanitizeSpawn(spawn) : spawn;
+    },
+
+    sanitizeSpawn(spawn) {
+      const x = spawn.x, z = spawn.z;
+      let y = spawn.y, groundTop = -Infinity;
+      const blocks = this.pworld || [];
+      for (let i = 0; i < blocks.length; i++) {
+        const b = blocks[i];
+        const th = b.th === undefined ? 1 : b.th;
+        if (x <= b.x - b.w / 2 + 0.3 || x >= b.x + b.w / 2 - 0.3) continue;
+        if (z <= b.z - b.d / 2 + 0.3 || z >= b.z + b.d / 2 - 0.3) continue;
+        if (b.y <= y + 0.25 && b.y > groundTop) groundTop = b.y;
+      }
+      if (isFinite(groundTop)) y = Math.max(y, groundTop + 0.02);
+      for (let pass = 0; pass < 10; pass++) {
+        let blocked = false;
+        for (let i = 0; i < blocks.length; i++) {
+          const b = blocks[i];
+          const th = b.th === undefined ? 1 : b.th;
+          if (x <= b.x - b.w / 2 + 0.25 || x >= b.x + b.w / 2 - 0.25) continue;
+          if (z <= b.z - b.d / 2 + 0.25 || z >= b.z + b.d / 2 - 0.25) continue;
+          if (b.y - th < y + 1.9 && b.y > y + 0.2) { blocked = true; break; }
+        }
+        if (!blocked) break;
+        y += 0.5;
+      }
+      return { x: x, y: y, z: z, yaw: spawn.yaw || 0 };
     },
 
     encloseMap(blocks) {
@@ -1078,14 +1609,17 @@
         bridge: { top: 'wool_blue', wall: 'stone_brick' },
         inferno: { top: 'netherrack', wall: 'nether_brick' },
         frostbite: { top: 'snow', wall: 'prismarine' },
+        citadel: { top: 'deepslate', wall: 'stone_brick' },
+        dunes: { top: 'sandstone', wall: 'sandstone' },
         parkour: { top: (this.theme && this.theme.ground) || 'grass', wall: (this.theme && this.theme.accent) || 'stone_brick' },
       };
       const pal = palettes[arenaId] || palettes.parkour;
+      const safeFloor = this.isPvp() && this.mode !== 'bridge';
       const margin = 6;
       const x0 = minX - margin, x1 = maxX + margin;
       const z0 = minZ - margin, z1 = maxZ + margin;
       const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
-      const baseTop = Math.max(this.voidY + 1, minY - 5);
+      const baseTop = safeFloor ? minY - 0.05 : Math.max(this.voidY + 1, minY - 5);
       const baseTh = 2;
       const triggerTh = 1.2;
       const triggerTop = baseTop + triggerTh;
@@ -1097,10 +1631,12 @@
         x: cx, y: baseTop, z: cz, w: x1 - x0, d: z1 - z0, th: baseTh,
         t: pal.top, isEnclosure: true,
       });
-      blocks.push({
-        x: cx, y: triggerTop, z: cz, w: x1 - x0 - 2, d: z1 - z0 - 2, th: triggerTh,
-        t: 'wall', hazard: true, isBasin: true, isEnclosure: true,
-      });
+      if (!safeFloor) {
+        blocks.push({
+          x: cx, y: triggerTop, z: cz, w: x1 - x0 - 2, d: z1 - z0 - 2, th: triggerTh,
+          t: 'wall', hazard: true, isBasin: true, isEnclosure: true,
+        });
+      }
 
       const addRim = (x, z, w, d) => {
         blocks.push({ x: x, y: rimTop, z: z, w: w, d: d, th: rimTop - baseTop, t: pal.wall, isEnclosure: true });
@@ -1115,7 +1651,7 @@
       addRim(cx, z0, endW, wallW);
       addRim(cx, z1, endW, wallW);
 
-      this.basinY = triggerTop;
+      this.basinY = safeFloor ? this.voidY - 1 : triggerTop;
       this.enclosure = {
         baseTop: baseTop, rimTop: rimTop, wallTop: maxY + 10,
         x0: x0, x1: x1, z0: z0, z1: z1, wallType: pal.wall,
@@ -1137,9 +1673,15 @@
       this.selected = 0;
       this.swing = 0;
       this.attackCD = 0;
+      this.attackBuffer = 0;
+      this.spearCharge = 0;
+      this.spearChargeActive = false;
       this.useCD = 0;
       this.boostCD = 0;
       this.grappleCD = 0;
+      this.playerHook = null;
+      this.arrows = [];
+      this.arrowSeq = 0;
       this.slidePressed = false;
       this.grappleHeld = false;
       this.hitPause = 0;
@@ -1181,7 +1723,12 @@
         this.allowBuild = mode === 'bridge' || (!!arena.allowBuild && mode !== 'sumo');
       }
 
-      this.encloseMap(blocks);
+      if (this.arena && this.arena.noEnclose) {
+        this.basinY = this.voidY - 1;
+        this.enclosure = null;
+      } else {
+        this.encloseMap(blocks);
+      }
 
       this.blocks = blocks;
       this.pworld = blocks.filter((b) => !b.hazard);
@@ -1293,6 +1840,7 @@
       st.jumpCut = false;
       st.jumpBuffer = 0;
       st.jcd = 0;
+      this.me.hookPull = null;
       this.slidePressed = false;
       this.grappleHeld = false;
       this.releaseGrapple(false);
@@ -1303,6 +1851,7 @@
       if (this.isPvp()) {
         if (!this.me.dead) this.pvpDeath('manual', null);
       } else {
+        this.cancelSpearCharge();
         this.placeAtSpawn();
         VOX.Audio.play('respawn');
         VOX.UI.toast('Respawned', '#8be02a');
@@ -1337,8 +1886,9 @@
       this.myId = 'local';
       this.netMode = 'offline';
       const seed = LG.randomSeed();
+      const arena = this.solo.arena && VOX.Arenas[this.solo.arena] ? this.solo.arena : PVP_ARENAS[seed % PVP_ARENAS.length];
       this.setupMatch({
-        mode: 'bot', seed: seed, arena: PVP_ARENAS[seed % PVP_ARENAS.length],
+        mode: 'bot', seed: seed, arena: arena,
         players: [
           this.selfPlayer('local'),
           { id: 'bot', name: 'Trainer Bot', skin: 'shadow', color: '#ff6b5b', team: 1 },
@@ -1370,7 +1920,7 @@
       return {
         code: this.room.code, mode: this.room.mode,
         difficulty: this.room.difficulty, theme: this.room.theme,
-        seed: this.room.seed, hostId: this.room.hostId,
+        arena: this.room.arena || '', seed: this.room.seed, hostId: this.room.hostId,
         players: this.room.players.map((p) => ({
           id: p.id, name: p.name, skin: p.skin, color: p.color, team: p.team,
           ready: !!p.ready, host: p.id === this.room.hostId,
@@ -1386,6 +1936,7 @@
         mode: snap.mode || 'race',
         difficulty: snap.difficulty || 'standard',
         theme: snap.theme || '',
+        arena: snap.arena || '',
         seed: (snap.seed >>> 0) || LG.randomSeed(),
         hostId: snap.hostId || null,
         players: (snap.players || []).map((p) => Object.assign({}, p)),
@@ -1447,6 +1998,7 @@
           mode: 'race',
           difficulty: this.solo.difficulty || 'standard',
           theme: this.solo.theme || '',
+          arena: '',
           seed: LG.randomSeed(),
           hostId: this.myId,
           players: [Object.assign(this.selfPlayer(this.myId), { host: true, ready: true })],
@@ -1489,7 +2041,7 @@
           this.applyRoomSnapshot(res.room);
         } else {
           this.room = {
-            code: res.room || clean, mode: 'race', difficulty: 'standard', theme: '',
+            code: res.room || clean, mode: 'race', difficulty: 'standard', theme: '', arena: '',
             seed: LG.randomSeed(), hostId: res.isHost ? this.myId : null,
             players: [Object.assign(this.selfPlayer(this.myId), { host: !!res.isHost, ready: true })],
             me: null,
@@ -1577,7 +2129,8 @@
       if (!this.room.players.every((p) => p.id === this.room.hostId || p.ready)) return;
       this.assignTeams();
       const seed = this.room.seed >>> 0;
-      const arena = (mode === 'duel' || mode === 'team') ? PVP_ARENAS[seed % PVP_ARENAS.length] : null;
+      const picked = this.room.arena && VOX.Arenas[this.room.arena] ? this.room.arena : '';
+      const arena = (mode === 'duel' || mode === 'team') ? (picked || PVP_ARENAS[seed % PVP_ARENAS.length]) : null;
       const config = {
         mode: mode, seed: seed, difficulty: this.room.difficulty, theme: this.room.theme,
         arena: arena,
@@ -1595,7 +2148,8 @@
       if (this.raceTimeout) { clearTimeout(this.raceTimeout); this.raceTimeout = null; }
       const mode = this.room.mode;
       const seed = this.room.seed >>> 0;
-      const arena = (mode === 'duel' || mode === 'team') ? PVP_ARENAS[seed % PVP_ARENAS.length] : null;
+      const picked = this.room.arena && VOX.Arenas[this.room.arena] ? this.room.arena : '';
+      const arena = (mode === 'duel' || mode === 'team') ? (picked || PVP_ARENAS[seed % PVP_ARENAS.length]) : null;
       const config = {
         mode: mode, seed: seed, difficulty: this.room.difficulty, theme: this.room.theme,
         arena: arena,
@@ -1686,6 +2240,26 @@
       if (t === 'state') { this.onRemoteState(msg); return; }
       if (t === 'hit') {
         if (msg.victim === this.myId) this.receiveHit(msg);
+        return;
+      }
+      if (t === 'bump') {
+        if (msg.victim === this.myId) this.receiveBump(msg);
+        return;
+      }
+      if (t === 'arrow') {
+        this.onRemoteArrow(msg);
+        return;
+      }
+      if (t === 'arrow_end') {
+        this.onRemoteArrowEnd(msg);
+        return;
+      }
+      if (t === 'hook') {
+        if (msg.victim === this.myId) this.receiveHook(msg);
+        return;
+      }
+      if (t === 'hook_end') {
+        if (msg.victim === this.myId) this.receiveHookEnd(msg);
         return;
       }
       if (t === 'death') {
@@ -1928,6 +2502,7 @@
     },
 
     showPause() {
+      this.cancelSpearCharge();
       if (this.state !== 'paused') {
         this.pauseFrom = (this.state === 'countdown') ? 'countdown' : 'playing';
         this.state = 'paused';
@@ -1982,6 +2557,13 @@
       this.bot = null;
       this.viewmodel = null;
       this.releaseGrapple(false);
+      this.playerHook = null;
+      if (this.arrows) {
+        for (let i = this.arrows.length - 1; i >= 0; i--) this.finishArrow(this.arrows[i], false);
+        this.arrows = [];
+      }
+      this.attackBuffer = 0;
+      this.cancelSpearCharge();
       this.grappleHeld = false;
       this.slidePressed = false;
       this.me = null;
@@ -2042,6 +2624,9 @@
         racebars: null,
         hint: '',
         crosshair: !!this.settings.xh,
+        chargeActive: false,
+        charge: 0,
+        chargeReady: false,
       };
       if (pvp) {
         h.hp = me.hp;
@@ -2078,10 +2663,18 @@
       } else {
         h.hotbar = WEAPON_SLOTS.map((w) => ({ label: w.label, color: w.color, selected: me.weapon === w.id }));
         if (pvp) {
-          h.hint = '<kbd>1</kbd> sword <kbd>2</kbd> spear <kbd>3</kbd> hook | <kbd>LMB</kbd> attack | <kbd>RMB</kbd> block | <kbd>C</kbd> slide | <kbd>Space</kbd>x2 jump | <kbd>E</kbd> quick grapple';
+          h.hint = '<kbd>1-4</kbd> weapons | <kbd>LMB</kbd> attack | <kbd>RMB</kbd> spear charge / block | <kbd>C</kbd> slide | <kbd>Space</kbd>x2 jump';
+        } else if (this.mode === 'race') {
+          h.hint = '<kbd>1-4</kbd> weapons | <kbd>LMB</kbd> bump rivals | <kbd>RMB</kbd> spear charge | <kbd>C</kbd> slide | <kbd>E</kbd> grapple';
         } else {
-          h.hint = '<kbd>1</kbd> sword <kbd>2</kbd> spear <kbd>3</kbd> hook | <kbd>Space</kbd>x2 jump | <kbd>C</kbd> slide | <kbd>E</kbd> grapple | <kbd>R</kbd> retry';
+          h.hint = '<kbd>1-4</kbd> sword / spear / hook / bow | <kbd>Space</kbd>x2 jump | <kbd>C</kbd> slide | <kbd>E</kbd> grapple | <kbd>R</kbd> retry';
         }
+      }
+      if (this.spearChargeActive) {
+        const sw = C.weapon('spear');
+        h.chargeActive = true;
+        h.charge = this.spearCharge / sw.chargeMax;
+        h.chargeReady = this.spearCharge >= sw.chargeMin;
       }
       if (me.dead) h.crosshair = false;
       this.hud = h;

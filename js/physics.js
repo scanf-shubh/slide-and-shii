@@ -31,6 +31,7 @@
     slideBoost: 0.09,
     slideDrag: 0.997,
     slideAccel: 0.005,
+    stopDrag: 0.68,
     maxSlide: 0.32,
     boostMax: 0.46,
     grappleMax: 30,
@@ -232,7 +233,7 @@
       s.slideCD = CFG.slideCD;
       ev.slid = true;
     }
-    const sliding = s.slideT > 0 && inp.slide && !sneak;
+    const sliding = s.slideT > 0 && inp.slide && !sneak && s.ground;
     if (!sliding) s.slideT = 0;
     else s.slideT--;
 
@@ -306,6 +307,12 @@
     } else {
       s.ground = false;
     }
+    if (!wasG && s.ground && s.slideT > 0) {
+      s.slideT = 0;
+      s.vx *= 0.45;
+      s.vz *= 0.45;
+    }
+    if (!s.ground && s.slideT > 0) s.slideT = 0;
 
     if (s.ground && s.on && s.on.t === 'slime' && !sneak && land < -0.03) {
       s.vy = Math.max(0.2, -land * 0.9);
@@ -322,6 +329,11 @@
     s.vx *= dr;
     s.vz *= dr;
     s.vy = Math.max((s.vy - CFG.grav) * CFG.vdrag, CFG.term);
+    if (s.ground && !len && !sliding && !s.grapple && !s.boostT &&
+        !(s.on && s.on.t === 'ice') && Math.hypot(s.vx, s.vz) <= CFG.maxSlide) {
+      s.vx *= CFG.stopDrag;
+      s.vz *= CFG.stopDrag;
+    }
 
     // 4) Anti-jitter
     if (Math.abs(s.vx) < CFG.thr) s.vx = 0;
@@ -357,11 +369,12 @@
     return { t: t0, normal };
   }
 
-  function raycastWorld(world, origin, dir, maxDist = CFG.reach) {
+  function raycastWorld(world, origin, dir, maxDist = CFG.reach, opts) {
+    const includeWalls = !!(opts && opts.includeWalls);
     let best = null;
     for (let i = 0; i < world.length; i++) {
       const b = world[i];
-      if (b.t === 'wall') continue; // cannot place on invisible barrier walls
+      if (!includeWalls && b.t === 'wall') continue; // cannot place on invisible barrier walls
       const [x0, x1, y0, y1, z0, z1] = bounds(b);
       const hit = rayBox(origin, dir, { x: x0, y: y0, z: z0 }, { x: x1, y: y1, z: z1 });
       if (hit && hit.t <= maxDist && (!best || hit.t < best.t)) {

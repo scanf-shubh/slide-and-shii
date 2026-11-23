@@ -76,24 +76,28 @@
     const notice = online
       ? '<div class="notice">LAN server detected — rooms will connect over WebSocket.</div>'
       : '<div class="notice">PeerJS rooms work from any static host. Add <b>server.js</b> for a dedicated LAN server.</div>';
+    const arenaOptions = '<option value="">Random</option>' + Object.keys(VOX.Arenas)
+      .filter((id) => VOX.Arenas[id].mode === 'pvp')
+      .map((id) => '<option value="' + id + '" ' + (app.solo.arena === id ? 'selected' : '') + '>' + esc(VOX.Arenas[id].name) + '</option>')
+      .join('');
 
     $('overlay').innerHTML =
       '<div class="shell"><div class="brand"><div class="logo"></div><div><h1>VOX ARENA</h1>' +
-      '<p>Procedural parkour races · sword knockback PvP · 1–4 players</p></div></div>' +
+      '<p>Procedural parkour races · weapon knockback PvP · 1–4 players</p></div></div>' +
       '<div class="grid">' +
       '<div class="stack">' +
       '<div class="panel"><h2>Multiplayer</h2><p class="sub">Create a room and send the 5-letter code to friends, or join theirs.</p>' +
       '<div class="actions"><button class="pri" data-act="create">Create Room <span class="k">host</span></button>' +
       '<button data-act="join">Join Room <span class="k">code</span></button></div>' +
       '<div style="margin-top:12px">' + notice + '</div></div>' +
-      '<div class="panel"><h2>Solo</h2><p class="sub">Randomised seeded courses and a sword duel against the bot.</p>' +
+      '<div class="panel"><h2>Solo</h2><p class="sub">Randomised seeded courses and a combat duel against the bot.</p>' +
       '<div class="row" style="margin-bottom:10px"><label class="field"><span>Difficulty</span><select id="soloDiff">' +
       Object.keys(VOX.LevelGen.DIFFICULTY).map((k) => '<option value="' + k + '" ' + (app.solo.difficulty === k ? 'selected' : '') + '>' + VOX.LevelGen.DIFFICULTY[k].name + '</option>').join('') +
       '</select></label><label class="field"><span>Theme</span><select id="soloTheme"><option value="">Random</option>' +
       VOX.LevelGen.THEME_IDS.map((k) => '<option value="' + k + '" ' + (app.solo.theme === k ? 'selected' : '') + '>' + VOX.LevelGen.THEMES[k].name + '</option>').join('') +
-      '</select></label></div>' +
+      '</select></label><label class="field"><span>Bot arena</span><select id="soloArena">' + arenaOptions + '</select></label></div>' +
       '<div class="actions"><button class="pri" data-act="solo">Parkour Run <span class="k">timed</span></button>' +
-      '<button data-act="bot">Sword Duel vs Bot <span class="k">AI</span></button>' +
+      '<button data-act="bot">Combat Duel vs Bot <span class="k">AI</span></button>' +
       '<button data-act="bridge">Bridge Practice <span class="k">sandbox</span></button></div></div>' +
       '<div class="foot"><button class="ghost" data-act="settings">Settings</button><button class="ghost" data-act="controls">Controls</button><button class="ghost" data-act="stats">Stats</button></div>' +
       '</div>' +
@@ -104,6 +108,7 @@
     UI.bindProfileBlock(UI.showMenu);
     $('soloDiff').onchange = (e) => { app.solo.difficulty = e.target.value; app.saveProfile(); };
     $('soloTheme').onchange = (e) => { app.solo.theme = e.target.value; app.saveProfile(); };
+    $('soloArena').onchange = (e) => { app.solo.arena = e.target.value; app.saveProfile(); };
     document.querySelectorAll('[data-act]').forEach((b) => {
       b.onclick = () => {
         const a = b.dataset.act;
@@ -168,10 +173,14 @@
     }
     const modes = [
       { id: 'race', name: 'Parkour Race', sub: '2–4 players · first to the finish' },
-      { id: 'duel', name: 'Sword Duel', sub: '1v1 · first to 5 knockouts' },
+      { id: 'duel', name: 'Weapon Duel', sub: '1v1 · first to 5 knockouts' },
       { id: 'team', name: 'Team Battle', sub: '2v2 · shared score' },
     ];
     const modeHtml = modes.map((m) => '<div class="mode ' + (room.mode === m.id ? 'sel' : '') + '" data-mode="' + m.id + '"><b>' + m.name + '</b><small>' + m.sub + '</small></div>').join('');
+    const arenaOptions = '<option value="">Random</option>' + Object.keys(VOX.Arenas)
+      .filter((id) => VOX.Arenas[id].mode === 'pvp')
+      .map((id) => '<option value="' + id + '" ' + (room.arena === id ? 'selected' : '') + '>' + esc(VOX.Arenas[id].name) + '</option>')
+      .join('');
 
     const canStart =
       room.mode === 'race' ? room.players.length >= 1 :
@@ -198,7 +207,7 @@
       VOX.LevelGen.DIFFICULTY_IDS.map((k) => '<option value="' + k + '" ' + (room.difficulty === k ? 'selected' : '') + '>' + VOX.LevelGen.DIFFICULTY[k].name + '</option>').join('') +
       '</select></label><label class="field"><span>Theme</span><select id="lobbyTheme" ' + (isHost ? '' : 'disabled') + '><option value="">Random</option>' +
       VOX.LevelGen.THEME_IDS.map((k) => '<option value="' + k + '" ' + (room.theme === k ? 'selected' : '') + '>' + VOX.LevelGen.THEMES[k].name + '</option>').join('') +
-      '</select></label></div>' +
+      '</select></label><label class="field"><span>Arena</span><select id="lobbyArena" ' + (isHost ? '' : 'disabled') + '>' + arenaOptions + '</select></label></div>' +
       '<div class="row" style="margin-top:10px;align-items:center"><div class="pill cy" style="flex:1;justify-content:center">Seed ' + room.seed + '</div>' +
       (isHost ? '<button class="small" id="reroll">Reroll</button>' : '') + '</div>' +
       '<div id="lobbyMsg" style="margin-top:10px">' + (startOk ? '' : '<div class="notice warn">' + (canStart ? 'Waiting for everyone to ready up.' : 'Need ' + (room.mode === 'duel' ? '2 players' : room.mode === 'team' ? '4 players' : 'players') + ' to start.') + '</div>') + '</div>' +
@@ -211,6 +220,7 @@
     if (isHost) {
       $('lobbyDiff').onchange = (e) => app.setRoomOptions({ difficulty: e.target.value });
       $('lobbyTheme').onchange = (e) => app.setRoomOptions({ theme: e.target.value });
+      $('lobbyArena').onchange = (e) => app.setRoomOptions({ arena: e.target.value });
       const rr = $('reroll');
       if (rr) rr.onclick = () => app.setRoomOptions({ seed: VOX.LevelGen.randomSeed() });
     }
@@ -269,8 +279,8 @@
     $('overlay').innerHTML =
       '<div class="shell" style="max-width:720px"><div class="brand" style="margin-bottom:14px"><div class="logo"></div><div><h1 style="font-size:26px">CONTROLS</h1><p>Identical movement engine across every mode</p></div></div>' +
       '<div class="panel"><div class="scroll"><table style="width:100%;border-collapse:collapse;font-size:14px;line-height:1.9">' +
-      [['W A S D', 'Move'], ['Mouse', 'Look'], ['Space', 'Jump / double jump'], ['C', 'Slide'], ['E', 'Quick grapple (hold to keep pulling)'], ['1 / 2 / 3', 'Sword / spear / grapple'], ['Shift', 'Sneak (edge guard)'], ['Ctrl / double-tap W', 'Sprint'], ['V', 'First / third person'], ['R', 'Respawn / restart'], ['Esc', 'Pause'], ['Left click', 'Attack / break block (bridge)'], ['Right click', 'Weapon block / place block (bridge)'], ['F', 'Place block (PvP build arenas)'], ['G', 'Break block (PvP build arenas)']].map((r) => '<tr><td style="width:44%"><kbd>' + r[0] + '</kbd></td><td>' + r[1] + '</td></tr>').join('') +
-      '</table><p class="sub" style="margin-top:12px">Sprint jumps carry the most distance. In PvP, hit while falling for a crit, and reset your sprint with a W-tap to keep strong knockback. Sneak blocks you from walking off ledges.</p></div>' +
+      [['W A S D', 'Move'], ['Mouse', 'Look'], ['Space', 'Jump / double jump'], ['C', 'Slide'], ['E', 'Quick grapple (hold to keep pulling)'], ['1 / 2 / 3 / 4', 'Sword / spear / grapple / bow'], ['Shift', 'Sneak (edge guard)'], ['Ctrl / double-tap W', 'Sprint'], ['V', 'First / third person'], ['R', 'Respawn / restart'], ['Esc', 'Pause'], ['Left click', 'Attack / fire bow / break block (bridge)'], ['Right click', 'Spear charge & dash / weapon block / place block (bridge)'], ['F', 'Place block (PvP build arenas)'], ['G', 'Break block (PvP build arenas)']].map((r) => '<tr><td style="width:44%"><kbd>' + r[0] + '</kbd></td><td>' + r[1] + '</td></tr>').join('') +
+      '</table><p class="sub" style="margin-top:12px">Sprint jumps carry the most distance. In PvP, hit while falling for a crit, and reset your sprint with a W-tap to keep strong knockback. Spear lunges at targets in front; the hook pulls rivals toward you. In races, hits only bump rivals. Sneak blocks you from walking off ledges.</p></div>' +
       '<div class="foot"><span class="spacer"></span><button class="ghost" id="ctrlBack">Back</button></div></div></div>';
     $('ctrlBack').onclick = back;
   };
@@ -391,6 +401,15 @@
       hint.style.display = 'block';
       if (hint.innerHTML !== h.hint) hint.innerHTML = h.hint;
     } else hint.style.display = 'none';
+    const cb = $('chargeBox');
+    if (cb) {
+      cb.classList.toggle('hidden', !h.chargeActive);
+      cb.classList.toggle('ready', !!h.chargeReady);
+      if (h.chargeActive) {
+        $('chargeFill').style.width = Math.round(Math.max(0, Math.min(1, h.charge || 0)) * 100) + '%';
+        set('chargeText', h.chargeReady ? 'RELEASE TO DASH' : 'SPEAR CHARGE');
+      }
+    }
     $('crosshair').style.display = h.crosshair === false ? 'none' : 'block';
   };
 

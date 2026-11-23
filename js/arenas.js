@@ -294,6 +294,150 @@
       },
     },
 
+    citadel: {
+      id: 'citadel',
+      name: 'Obsidian Citadel',
+      mode: 'pvp',
+      allowBuild: true,
+      desc: 'A vast quartz-and-deepslate fortress with raised keeps, stairs and long sightlines.',
+      skyTop: '#1b1d3a',
+      skyBot: '#7568a8',
+      fogColor: 0x5b547f,
+      theme: { skyTop: '#1b1d3a', skyBottom: '#7568a8', fog: 0x5b547f, fogNear: 55, fogFar: 230, hemiSky: 0xe6e0ff, hemiGround: 0x28243a, sunColor: 0xffe8c8, sunIntensity: 0.82, night: true, clouds: 12 },
+      voidY: -18,
+      spawns: [
+        { x: 0, y: 0.02, z: 24, yaw: 0, team: 'blue' },
+        { x: 0, y: 0.02, z: -24, yaw: Math.PI, team: 'red' },
+        { x: 24, y: 0.02, z: 0, yaw: Math.PI / 2, team: 'green' },
+        { x: -24, y: 0.02, z: 0, yaw: -Math.PI / 2, team: 'yellow' },
+        { x: 17, y: 0.02, z: 17, yaw: Math.PI / 4, team: 'blue' },
+        { x: -17, y: 0.02, z: -17, yaw: -3 * Math.PI / 4, team: 'red' },
+      ],
+      build() {
+        const b = [];
+        const S = 60;
+        b.push({ x: 0, y: 0, z: 0, w: S, d: S, th: 1, t: 'deepslate' });
+        b.push({ x: 0, y: 0.15, z: 18, w: 6, d: 16, th: 0.15, t: 'quartz' });
+        b.push({ x: 0, y: 0.15, z: -18, w: 6, d: 16, th: 0.15, t: 'quartz' });
+        b.push({ x: 18, y: 0.15, z: 0, w: 16, d: 6, th: 0.15, t: 'quartz' });
+        b.push({ x: -18, y: 0.15, z: 0, w: 16, d: 6, th: 0.15, t: 'quartz' });
+        b.push({ x: 0, y: 0.4, z: 0, w: 20, d: 20, th: 0.25, t: 'stone_brick' });
+        b.push({ x: 0, y: 1, z: 0, w: 12, d: 12, th: 0.6, t: 'deepslate' });
+        b.push({ x: 0, y: 1.6, z: 0, w: 6, d: 6, th: 0.6, t: 'stone_brick' });
+        b.push({ x: 0, y: 2.6, z: 0, w: 2, d: 2, th: 1, t: 'emerald' });
+        b.push({ x: 0, y: 4.4, z: 0, w: 1.2, d: 1.2, th: 1.8, t: 'quartz' });
+        b.push({ x: 0, y: 5.4, z: 0, w: 1, d: 1, th: 1, t: 'glowstone' });
+        [[-7, -7], [7, -7], [-7, 7], [7, 7]].forEach(([x, z]) => {
+          b.push({ x: x, y: 2.4, z: z, w: 1.2, d: 1.2, th: 2, t: 'quartz' });
+          b.push({ x: x, y: 3.4, z: z, w: 1.8, d: 1.8, th: 1, t: 'amethyst' });
+        });
+        [[-20, -20], [20, -20], [-20, 20], [20, 20]].forEach(([cx, cz]) => {
+          b.push({ x: cx, y: 3, z: cz, w: 10, d: 10, th: 3, t: 'stone_brick' });
+          b.push({ x: cx, y: 3.2, z: cz, w: 8, d: 8, th: 0.2, t: 'quartz' });
+          b.push({ x: cx, y: 4.4, z: cz, w: 2.4, d: 2.4, th: 1.2, t: 'deepslate' });
+          b.push({ x: cx, y: 5.4, z: cz, w: 1.2, d: 1.2, th: 1, t: 'glowstone' });
+          const sx = cx > 0 ? cx - 5.5 : cx + 5.5;
+          const sz = cz > 0 ? cz - 5.5 : cz + 5.5;
+          b.push({ x: sx, y: 1, z: cz, w: 1, d: 3, th: 1, t: 'stone_brick' });
+          b.push({ x: cx, y: 1, z: sz, w: 3, d: 1, th: 1, t: 'stone_brick' });
+        });
+        [[-11, 0], [11, 0], [0, -11], [0, 11]].forEach(([x, z]) => {
+          b.push({ x: x, y: 1.4, z: z, w: 5, d: 1.4, th: 1, t: 'deepslate' });
+        });
+        b.push({ x: 0, y: 4, z: -S / 2 - 0.5, w: S + 2, d: 1, th: 4, t: 'stone_brick' });
+        b.push({ x: 0, y: 4, z: S / 2 + 0.5, w: S + 2, d: 1, th: 4, t: 'stone_brick' });
+        b.push({ x: -S / 2 - 0.5, y: 4, z: 0, w: 1, d: S, th: 4, t: 'stone_brick' });
+        b.push({ x: S / 2 + 0.5, y: 4, z: 0, w: 1, d: S, th: 4, t: 'stone_brick' });
+        return b;
+      },
+    },
+
+    dunes: {
+      id: 'dunes',
+      name: 'Dune Bastion',
+      mode: 'pvp',
+      allowBuild: true,
+      desc: 'A sunbaked 64-block fortress with terraced temples, obelisks and open flanks.',
+      skyTop: '#e99a3e',
+      skyBot: '#ffe2a8',
+      fogColor: 0xf2c682,
+      theme: { skyTop: '#e99a3e', skyBottom: '#ffe2a8', fog: 0xf2c682, fogNear: 58, fogFar: 245, hemiSky: 0xfff2dc, hemiGround: 0x8a6038, sunColor: 0xffd890, sunIntensity: 1.08, clouds: 7 },
+      voidY: -18,
+      spawns: [
+        { x: 0, y: 0.02, z: 25, yaw: 0, team: 'blue' },
+        { x: 0, y: 0.02, z: -25, yaw: Math.PI, team: 'red' },
+        { x: 25, y: 0.02, z: 0, yaw: Math.PI / 2, team: 'green' },
+        { x: -25, y: 0.02, z: 0, yaw: -Math.PI / 2, team: 'yellow' },
+        { x: 18, y: 0.02, z: 18, yaw: Math.PI / 4, team: 'blue' },
+        { x: -18, y: 0.02, z: -18, yaw: -3 * Math.PI / 4, team: 'red' },
+      ],
+      build() {
+        const b = [];
+        const S = 64;
+        b.push({ x: 0, y: 0, z: 0, w: S, d: S, th: 1, t: 'sandstone' });
+        b.push({ x: 0, y: 0.12, z: 19, w: 8, d: 16, th: 0.12, t: 'quartz' });
+        b.push({ x: 0, y: 0.12, z: -19, w: 8, d: 16, th: 0.12, t: 'quartz' });
+        b.push({ x: 19, y: 0.12, z: 0, w: 16, d: 8, th: 0.12, t: 'quartz' });
+        b.push({ x: -19, y: 0.12, z: 0, w: 16, d: 8, th: 0.12, t: 'quartz' });
+        b.push({ x: 0, y: 1.2, z: 0, w: 22, d: 22, th: 1, t: 'sandstone' });
+        b.push({ x: 0, y: 2.2, z: 0, w: 14, d: 14, th: 1, t: 'sandstone' });
+        b.push({ x: 0, y: 3.2, z: 0, w: 7, d: 7, th: 1, t: 'quartz' });
+        b.push({ x: 0, y: 4.2, z: 0, w: 3, d: 3, th: 1, t: 'gold' });
+        b.push({ x: 0, y: 5.4, z: 0, w: 1, d: 1, th: 1.2, t: 'glowstone' });
+        [[-12, -12], [12, -12], [-12, 12], [12, 12]].forEach(([x, z]) => {
+          b.push({ x: x, y: 2.5, z: z, w: 1.6, d: 1.6, th: 2.5, t: 'sandstone' });
+          b.push({ x: x, y: 3.5, z: z, w: 2.2, d: 2.2, th: 1, t: 'gold' });
+        });
+        [[-18, 0], [18, 0], [0, -18], [0, 18]].forEach(([x, z]) => {
+          b.push({ x: x, y: 2, z: z, w: 4, d: 8, th: 1.88, t: 'sandstone' });
+          b.push({ x: x, y: 3, z: z, w: 2, d: 4, th: 1, t: 'quartz' });
+        });
+        [[-20, -20], [20, -20], [-20, 20], [20, 20]].forEach(([x, z]) => {
+          b.push({ x: x, y: 3.5, z: z, w: 7, d: 7, th: 3.5, t: 'sandstone' });
+          b.push({ x: x, y: 3.7, z: z, w: 5, d: 5, th: 0.2, t: 'quartz' });
+          b.push({ x: x, y: 4.7, z: z, w: 1.5, d: 1.5, th: 1, t: 'gold' });
+        });
+        b.push({ x: 0, y: 3.5, z: -S / 2 - 0.5, w: S + 2, d: 1, th: 3.5, t: 'sandstone' });
+        b.push({ x: 0, y: 3.5, z: S / 2 + 0.5, w: S + 2, d: 1, th: 3.5, t: 'sandstone' });
+        b.push({ x: -S / 2 - 0.5, y: 3.5, z: 0, w: 1, d: S, th: 3.5, t: 'sandstone' });
+        b.push({ x: S / 2 + 0.5, y: 3.5, z: 0, w: 1, d: S, th: 3.5, t: 'sandstone' });
+        return b;
+      },
+    },
+
+    field: {
+      id: 'field',
+      name: 'Endless Field',
+      mode: 'pvp',
+      allowBuild: false,
+      noEnclose: true,
+      desc: 'A huge flat grass plain with no void and no cover. Pure open weapon duels.',
+      skyTop: '#3f8fe0',
+      skyBot: '#d9f0ff',
+      fogColor: 0xd9f0ff,
+      theme: { skyTop: '#3f8fe0', skyBottom: '#d9f0ff', fog: 0xd9f0ff, fogNear: 80, fogFar: 300, hemiSky: 0xeaf6ff, hemiGround: 0x4f6b3f, sunColor: 0xfff5dc, sunIntensity: 1.05, clouds: 12 },
+      voidY: -24,
+      spawns: [
+        { x: 0, y: 0.02, z: 24, yaw: 0, team: 'blue' },
+        { x: 0, y: 0.02, z: -24, yaw: Math.PI, team: 'red' },
+        { x: 24, y: 0.02, z: 0, yaw: Math.PI / 2, team: 'green' },
+        { x: -24, y: 0.02, z: 0, yaw: -Math.PI / 2, team: 'yellow' },
+        { x: 17, y: 0.02, z: 17, yaw: Math.PI / 4, team: 'blue' },
+        { x: -17, y: 0.02, z: -17, yaw: -3 * Math.PI / 4, team: 'red' },
+      ],
+      build() {
+        const b = [];
+        const S = 128;
+        const W = 12;
+        b.push({ x: 0, y: 0, z: 0, w: S, d: S, th: 2, t: 'grass' });
+        b.push({ x: 0, y: W, z: -S / 2 - 0.5, w: S - 1, d: 1, th: W, t: 'wall', isEnclosure: true });
+        b.push({ x: 0, y: W, z: S / 2 + 0.5, w: S - 1, d: 1, th: W, t: 'wall', isEnclosure: true });
+        b.push({ x: -S / 2 - 0.5, y: W, z: 0, w: 1, d: S - 1, th: W, t: 'wall', isEnclosure: true });
+        b.push({ x: S / 2 + 0.5, y: W, z: 0, w: 1, d: S - 1, th: W, t: 'wall', isEnclosure: true });
+        return b;
+      },
+    },
+
     parkour: {
       id: 'parkour',
       name: 'Sky Parkour Race',
