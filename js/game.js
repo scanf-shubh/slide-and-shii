@@ -6,7 +6,7 @@
   const C = VOX.Combat;
   const LG = VOX.LevelGen;
 
-  const PVP_ARENAS = ['sky', 'courtyard', 'sumo', 'bridge', 'inferno', 'frostbite', 'citadel', 'dunes', 'field'];
+  const PVP_ARENAS = ['field', 'courtyard', 'sumo', 'inferno', 'frostbite', 'dunes'];
   const HOTBAR = [
     { type: 'wool_red', label: 'Wool', color: '#c8372d' },
     { type: 'planks', label: 'Plank', color: '#b98a53' },
@@ -884,7 +884,7 @@
       const kb = msg.kb || w.kb || 0.135;
       me.st.vx -= Math.sin(msg.yaw || 0) * kb;
       me.st.vz -= Math.cos(msg.yaw || 0) * kb;
-      me.st.vy = 0.135;
+      me.st.vy = msg.vy || 0.135;
       me.hitFlash = 12;
       this.impactFrames(!!msg.crit, false);
       if (me.block) VOX.Audio.play('block');
@@ -900,7 +900,7 @@
       const kb = msg.kb || 0.1;
       me.st.vx -= Math.sin(msg.yaw || 0) * kb;
       me.st.vz -= Math.cos(msg.yaw || 0) * kb;
-      me.st.vy = 0.11;
+      me.st.vy = msg.vy || 0.11;
       me.hitFlash = 12;
       me.lastAttacker = msg.by || null;
       this.impactFrames(false, false);
@@ -1033,9 +1033,9 @@
         const kb = w.kb;
         target.st.vx -= Math.sin(yaw) * kb;
         target.st.vz -= Math.cos(yaw) * kb;
-        target.st.vy = 0.1;
+        target.st.vy = w.kbVy || 0.1;
         if (this.multiplayer) {
-          this.net.send({ type: 'bump', victim: target.id, by: this.myId, kb: kb, yaw: yaw });
+          this.net.send({ type: 'bump', victim: target.id, by: this.myId, kb: kb, vy: w.kbVy || 0.1, yaw: yaw });
         }
         VOX.Audio.play('hit');
         return;
@@ -1043,7 +1043,7 @@
       if (this.multiplayer) {
         this.net.send({
           type: 'hit', victim: target.id, dmg: w.damage, crit: false,
-          kb: w.kb, yaw: yaw, by: this.myId, weapon: 'bow',
+          kb: w.kb, vy: w.kbVy || 0.135, yaw: yaw, by: this.myId, weapon: 'bow',
         });
         VOX.Audio.play('hit');
         return;
@@ -1052,7 +1052,7 @@
       if (applied > 0) {
         target.st.vx -= Math.sin(yaw) * w.kb;
         target.st.vz -= Math.cos(yaw) * w.kb;
-        target.st.vy = 0.11;
+        target.st.vy = w.kbVy || 0.11;
         target.lastAttacker = this.myId;
         target.lastWeapon = 'bow';
         VOX.Audio.play('hit');
@@ -1430,7 +1430,7 @@
       const eye = C.eye(me.st, !!this.keys.ShiftLeft);
       const dir = C.dirFrom(me.yaw, me.pitch);
       if (this.canFight()) {
-        const target = this.pickHookTarget(eye, dir, 30);
+        const target = this.pickHookTarget(eye, dir, 80);
         if (target) {
           this.startPlayerHook(target);
           return;
@@ -1438,7 +1438,7 @@
       }
       const hit = P.raycastWorld(this.pworld, eye, dir, 30);
       if (!hit) {
-        this.grappleCD = 12;
+        this.grappleCD = 6;
         VOX.Audio.play('miss');
         return;
       }
@@ -1468,7 +1468,7 @@
     startPlayerHook(target) {
       const me = this.me;
       if (!me || !target) return;
-      const ttl = 32;
+      const ttl = 16;
       this.playerHook = { id: target.id, ttl: ttl };
       this.grappleCD = ttl;
       me.st.grapple = null;
@@ -1502,8 +1502,8 @@
       const dy = (me.st.y + 1.1) - (tst.y + 1.1);
       const dz = me.st.z - tst.z;
       const dist = Math.hypot(dx, dy, dz);
-      if (dist > 1.35) {
-        const pull = 0.045 / Math.max(1, dist);
+      if (dist > 2.5) {
+        const pull = 0.18 / Math.max(1, dist);
         tst.vx += dx * pull;
         tst.vz += dz * pull;
         tst.vy += Math.max(-0.012, dy * pull * 0.6);
@@ -1525,8 +1525,8 @@
       const dy = sy - (me.st.y + 1.1);
       const dz = sz - me.st.z;
       const dist = Math.hypot(dx, dy, dz);
-      if (dist > 1.2) {
-        const pull = 0.045 / Math.max(1, dist);
+      if (dist > 1.8) {
+        const pull = 0.18 / Math.max(1, dist);
         me.st.vx += dx * pull;
         me.st.vz += dz * pull;
         me.st.vy += Math.max(-0.012, dy * pull * 0.6);
@@ -1567,7 +1567,7 @@
       }
       if (me && me.st) me.st.grapple = null;
       if (this.grappleRope) this.grappleRope.visible = false;
-      if (cooldown !== false) this.grappleCD = Math.max(this.grappleCD || 0, 12);
+      if (cooldown !== false) this.grappleCD = Math.max(this.grappleCD || 0, 6);
     },
 
     updateGrappleVisual(rp) {
@@ -1766,7 +1766,7 @@
         this.voidY = P.CFG.voidY;
         this.allowBuild = false;
       } else {
-        const arena = VOX.Arenas[config.arena] || VOX.Arenas.sky;
+        const arena = VOX.Arenas[config.arena] || VOX.Arenas.field;
         this.arena = arena;
         blocks = arena.build();
         this.theme = arena.theme;

@@ -11,8 +11,8 @@
     IFRAMES: 4,
     weapons: {
       sword: { id: 'sword', name: 'Sword', damage: 6, reach: 3.2, cooldown: 8, maxHits: 1, cone: 0.54, kb: 0.135, block: 0.5 },
-      spear: { id: 'spear', name: 'Spear', damage: 4, reach: 4.7, cooldown: 12, maxHits: 2, cone: 0.76, kb: 0.09, block: 0.6, dashRange: 6.5, chargeMin: 16, chargeMax: 60, chargeRange: 9, chargeDamage: 10, chargeKb: 0.2, chargeCooldown: 32 },
-      bow: { id: 'bow', name: 'Bow', damage: 5, reach: 32, cooldown: 16, maxHits: 1, cone: 0.5, kb: 0.11, block: 0.65, speed: 1.1, gravity: 0.0025, ttl: 140 },
+      spear: { id: 'spear', name: 'Spear', damage: 4, reach: 6.5, cooldown: 12, maxHits: 2, cone: 0.76, kb: 0.09, block: 0.6, dashRange: 6.5, chargeMin: 16, chargeMax: 60, chargeRange: 9, chargeDamage: 10, chargeKb: 0.2, chargeCooldown: 32 },
+      bow: { id: 'bow', name: 'Bow', damage: 5, reach: 32, cooldown: 16, maxHits: 1, cone: 0.5, kb: 0.2, kbVy: 0.06, block: 0.65, speed: 1.1, gravity: 0.0025, ttl: 140 },
     },
     weapon(id) {
       return this.weapons[id] || this.weapons.sword;
