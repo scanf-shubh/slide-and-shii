@@ -322,7 +322,7 @@
     $('overlay').innerHTML =
       '<div class="shell" style="max-width:720px"><div class="brand" style="margin-bottom:14px"><div class="logo"></div><div><h1 style="font-size:26px">CONTROLS</h1><p>Identical movement engine across every mode</p></div></div>' +
       '<div class="panel"><div class="scroll"><table style="width:100%;border-collapse:collapse;font-size:14px;line-height:1.9">' +
-      [['W A S D', 'Move'], ['Mouse', 'Look'], ['Space', 'Jump / double jump'], ['C', 'Slide'], ['E', 'Quick grapple (hold to keep pulling)'], ['1 / 2 / 3 / 4', 'Sword / spear / grapple / bow'], ['Scroll', 'Change weapon'], ['I', 'Inspect player'], ['Tab', 'Scoreboard (hold, PvP)'], ['Shift', 'Sneak (edge guard)'], ['Ctrl / double-tap W', 'Sprint'], ['V', 'First / third person'], ['R', 'Respawn / restart'], ['Esc', 'Pause'], ['Left click', 'Attack / fire bow / break block (bridge)'], ['Right click', 'Spear charge & dash / weapon block / place block (bridge)'], ['F', 'Place block (all PvP arenas)'], ['G', 'Break block (all PvP arenas)'], ['B', 'Cycle build block (PvP)']].map((r) => '<tr><td style="width:44%"><kbd>' + r[0] + '</kbd></td><td>' + r[1] + '</td></tr>').join('') +
+      [['W A S D', 'Move'], ['Mouse', 'Look'], ['Space', 'Jump / double jump'], ['C', 'Slide'], ['E', 'Quick grapple (hold to keep pulling)'], ['1 / 2 / 3 / 4', 'Sword / spear / grapple / bow'], ['5', 'Blocks (PvP)'], ['Scroll', 'Change weapon / block'], ['I', 'Inspect player'], ['Tab', 'Scoreboard (hold, PvP)'], ['Shift', 'Sneak (edge guard)'], ['Ctrl / double-tap W', 'Sprint'], ['V', 'First / third person'], ['R', 'Respawn / restart'], ['Esc', 'Pause'], ['Left click', 'Attack / fire bow / break placed block'], ['Right click', 'Spear charge & dash / weapon block / place block']].map((r) => '<tr><td style="width:44%"><kbd>' + r[0] + '</kbd></td><td>' + r[1] + '</td></tr>').join('') +
       '</table><p class="sub" style="margin-top:12px">Sprint jumps carry the most distance. In PvP, hit while falling for a crit, and reset your sprint with a W-tap to keep strong knockback. Spear lunges at targets in front; the hook pulls rivals toward you. In races, hits only bump rivals. Sneak blocks you from walking off ledges.</p></div>' +
       '<div class="foot"><span class="spacer"></span><button class="ghost" id="ctrlBack">Back</button></div></div></div>';
     $('ctrlBack').onclick = back;
@@ -455,17 +455,6 @@
       if (key !== UI.lastHot) {
         UI.lastHot = key;
         hot.innerHTML = h.hotbar.map((x) => '<div class="hotslot ' + (x.selected ? 'sel' : '') + '"><div><div class="sw" style="background:' + (x.color || '#555') + '"></div>' + esc(x.label) + '</div></div>').join('');
-      }
-    }
-    const bb = $('buildbar');
-    if (bb) {
-      bb.style.display = h.build && h.build.length ? 'flex' : 'none';
-      if (h.build) {
-        const bkey = h.build.map((x) => x.label + x.color + x.selected).join('|');
-        if (bkey !== UI.lastBuild) {
-          UI.lastBuild = bkey;
-          bb.innerHTML = h.build.map((x) => '<div class="buildslot ' + (x.selected ? 'sel' : '') + '"><div><div class="sw" style="background:' + (x.color || '#555') + '"></div>' + esc(x.label) + '</div></div>').join('');
-        }
       }
     }
     const hint = $('hint');

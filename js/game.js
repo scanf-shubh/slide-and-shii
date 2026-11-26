@@ -8,11 +8,7 @@
 
   const PVP_ARENAS = ['field', 'courtyard', 'sumo', 'inferno', 'frostbite', 'dunes', 'citadel', 'foundry', 'skyway', 'colosseum', 'reactor', 'ffa'];
   const HOTBAR = [
-    { type: 'wool_red', label: 'Wool', color: '#c8372d' },
-    { type: 'planks', label: 'Plank', color: '#b98a53' },
-    { type: 'stone_brick', label: 'Stone', color: '#8a8f98' },
-    { type: 'glowstone', label: 'Glow', color: '#ffd76a' },
-    { type: 'wool_blue', label: 'Blue', color: '#2f5fd0' },
+    { type: 'stone_brick', label: 'Blocks', color: '#8a8f98' },
   ];
   const TEAM_COLORS = ['#35e0e8', '#ff5b5b'];
   const TICK = 1 / 60;
@@ -23,6 +19,7 @@
     { id: 'grapple', label: '3 Hook', color: '#ffd23f' },
     { id: 'bow', label: '4 Bow', color: '#8be02a' },
   ];
+  const BLOCK_SLOT = { id: 'blocks', label: '5 Blocks', color: '#8a8f98', block: true };
 
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
   const angleTo = (a, b) => {
@@ -68,7 +65,7 @@
     mode: null, matchPlayers: [], myIndex: 0, scores: {}, raceResults: [], remotes: new Map(), bot: null, me: null,
     keys: {}, jumpPressed: false, sprintDouble: false, lastW: 0,
     mouseLeft: false, mouseRight: false, attackCD: 0, attackBuffer: 0, spearCharge: 0, spearChargeActive: false, useCD: 0, swing: 0, stepT: 0, boostCD: 0,
-    selected: 0, buildSel: 0, thirdPerson: false, hadLock: false, pauseFrom: null, pauseStart: 0, inspectId: null,
+    selected: 0, thirdPerson: false, hadLock: false, pauseFrom: null, pauseStart: 0, inspectId: null,
     moveT: 0, acc: 0, hudAcc: 0, last: 0, lastStateSent: 0, lastSolo: null, currentSkin: 'steve',
     renderScale: 1, perfT: 0, perfN: 0,
     hitPause: 0, shake: 0, shakeT: 0, shakeDur: 0.18, impactFlash: 0, prevLocal: null,
@@ -246,25 +243,41 @@
       return this.inspectId;
     },
 
+    activeSlots() {
+      if (this.mode === 'bridge') return [BLOCK_SLOT];
+      if (this.allowBuild) return WEAPON_SLOTS.concat([BLOCK_SLOT]);
+      return WEAPON_SLOTS;
+    },
+
+    isBuildSlot() {
+      if (this.mode === 'bridge') return true;
+      const slot = this.activeSlots()[this.selected];
+      return !!(slot && slot.block);
+    },
+
+    selectSlot(n) {
+      const slots = this.activeSlots();
+      if (!this.me || n < 0 || n >= slots.length) return;
+      const slot = slots[n];
+      if (n === this.selected && (slot.block || this.me.weapon === slot.id)) return;
+      this.selected = n;
+      if (slot.block) {
+        this.cancelSpearCharge();
+      } else {
+        if (this.me.weapon !== slot.id) this.cancelSpearCharge();
+        this.me.weapon = slot.id;
+      }
+      this.updateHeldSlot();
+      this.buildHud(performance.now());
+      VOX.UI.updateHUD(this);
+    },
+
     onWheel(e) {
       if (this.state !== 'playing' && this.state !== 'countdown') return;
+      const slots = this.activeSlots();
+      if (slots.length < 2) return;
       const dir = e.deltaY > 0 ? 1 : -1;
-      let n = this.selected + dir;
-      if (this.mode === 'bridge') {
-        n = ((n % HOTBAR.length) + HOTBAR.length) % HOTBAR.length;
-        if (n !== this.selected) { this.selected = n; this.updateHeldSlot(); }
-        return;
-      }
-      n = ((n % WEAPON_SLOTS.length) + WEAPON_SLOTS.length) % WEAPON_SLOTS.length;
-      if (n === this.selected) return;
-      this.selected = n;
-      if (this.me) {
-        this.me.weapon = WEAPON_SLOTS[n].id;
-        this.cancelSpearCharge();
-        this.updateHeldSlot();
-        this.buildHud(performance.now());
-        VOX.UI.updateHUD(this);
-      }
+      this.selectSlot((this.selected + dir + slots.length) % slots.length);
     },
 
     onKey(e, down) {
@@ -316,8 +329,6 @@
         this.saveProfile();
       }
       if (k === 'KeyR' && this.state === 'playing') this.manualRespawn();
-      if (k === 'KeyF' && this.state === 'playing') this.placeBlock();
-      if (k === 'KeyG' && this.state === 'playing') this.breakBlock();
       if (k === 'KeyC' && this.state === 'playing') this.slidePressed = true;
       if (k === 'KeyE' && this.state === 'playing') {
         this.grappleHeld = true;
@@ -326,26 +337,7 @@
       if (k === 'KeyI' && this.state === 'playing') {
         this.inspectId = this.pickInspectTarget();
       }
-      if (k === 'KeyB' && this.state === 'playing' && this.allowBuild && this.mode !== 'bridge') {
-        this.buildSel = (this.buildSel + 1) % HOTBAR.length;
-        this.buildHud(performance.now());
-        VOX.UI.updateHUD(this);
-      }
-      if (k.indexOf('Digit') === 0) {
-        const n = +k.slice(5) - 1;
-        if (this.mode === 'bridge') {
-          if (n >= 0 && n < HOTBAR.length) {
-            this.selected = n;
-            this.updateHeldSlot();
-          }
-        } else if (n >= 0 && n < WEAPON_SLOTS.length && this.me) {
-          if (this.me.weapon !== WEAPON_SLOTS[n].id) this.cancelSpearCharge();
-          this.me.weapon = WEAPON_SLOTS[n].id;
-          this.updateHeldSlot();
-          this.buildHud(performance.now());
-          VOX.UI.updateHUD(this);
-        }
-      }
+      if (k.indexOf('Digit') === 0) this.selectSlot(+k.slice(5) - 1);
     },
 
     onMouseMove(e) {
@@ -377,14 +369,17 @@
       if (this.state !== 'playing' || !this.me || this.me.dead || this.me.finished) return;
       if (e.button === 0) {
         this.mouseLeft = true;
-        if (this.spearChargeActive) this.cancelSpearCharge();
-        if (this.mode === 'bridge') this.breakBlock();
-        else if (this.me.weapon === 'grapple') this.startGrapple();
-        else if (this.me.weapon === 'bow') this.requestAttack();
-        else if (this.canFight()) this.requestAttack();
+        if (this.isBuildSlot()) {
+          this.breakBlock();
+        } else {
+          if (this.spearChargeActive) this.cancelSpearCharge();
+          if (this.me.weapon === 'grapple') this.startGrapple();
+          else if (this.me.weapon === 'bow') this.requestAttack();
+          else if (this.canFight()) this.requestAttack();
+        }
       } else if (e.button === 2) {
         this.mouseRight = true;
-        if (this.mode === 'bridge') this.placeBlock();
+        if (this.isBuildSlot()) this.placeBlock();
         else if (this.me.weapon === 'spear' && this.canFight()) this.startSpearCharge();
       }
     },
@@ -508,7 +503,7 @@
           this.spearCharge = Math.min(C.weapon('spear').chargeMax, this.spearCharge + 1);
         }
       }
-      const block = this.isPvp() && this.mouseRight && me.weapon !== 'spear';
+      const block = this.isPvp() && !this.isBuildSlot() && this.mouseRight && me.weapon !== 'spear';
       me.block = block;
       const inp = {
         f: !!this.keys.KeyW, b: !!this.keys.KeyS, l: !!this.keys.KeyA, r: !!this.keys.KeyD,
@@ -686,7 +681,7 @@
 
     requestAttack() {
       const me = this.me;
-      if (!me || me.dead || me.finished || this.state !== 'playing' || !this.canFight()) return;
+      if (!me || me.dead || me.finished || this.state !== 'playing' || !this.canFight() || this.isBuildSlot()) return;
       if (this.attackCD > 0) {
         this.attackBuffer = 10;
         return;
@@ -696,7 +691,7 @@
 
     tryAttack() {
       const me = this.me;
-      if (!me || me.dead || me.finished || this.attackCD > 0) return;
+      if (!me || me.dead || me.finished || this.attackCD > 0 || this.isBuildSlot()) return;
       const w = C.weapon(me.weapon);
       if (w.id === 'bow') {
         this.fireBow();
@@ -743,7 +738,7 @@
     startSpearCharge() {
       const me = this.me;
       if (!me || me.dead || me.finished || this.state !== 'playing') return;
-      if (!this.canFight() || me.weapon !== 'spear' || this.attackCD > 0) return;
+      if (!this.canFight() || this.isBuildSlot() || me.weapon !== 'spear' || this.attackCD > 0) return;
       if (this.spearChargeActive) return;
       this.spearChargeActive = true;
       this.spearCharge = 0;
@@ -1281,23 +1276,122 @@
 
     tickBot(dt) {
       const bot = this.bot, st = bot.st, me = this.me;
-      if (!bot || bot.dead || !me) return;
+      if (!bot || bot.dead || !me || me.dead) return;
       C.tickStatus(bot);
+      const ai = bot.ai || (bot.ai = {
+        strafe: Math.random() < 0.5 ? 1 : -1,
+        strafeT: 0.7 + Math.random() * 0.8,
+        dodgeCD: 0, jumpHold: 0, stuckT: 0,
+        detour: 0, detourT: 0,
+        lastX: st.x, lastZ: st.z,
+      });
+      ai.strafeT -= dt;
+      ai.dodgeCD = Math.max(0, ai.dodgeCD - dt);
+      ai.detourT = Math.max(0, ai.detourT - dt);
+      if (ai.strafeT <= 0) {
+        ai.strafe *= -1;
+        ai.strafeT = 0.7 + Math.random();
+      }
+
       const dx = me.st.x - st.x, dz = me.st.z - st.z;
       const dist = Math.hypot(dx, dz);
+      const dy = me.st.y - st.y;
       const want = Math.atan2(-dx, -dz);
-      bot.yaw += angleTo(bot.yaw, want) * 0.14;
+      bot.yaw += angleTo(bot.yaw, want) * 0.17;
       bot.pitch = clamp(Math.atan2(me.st.y + 1.4 - (st.y + 1.5), Math.max(0.1, dist)) * 0.6, -1, 1);
 
       const fx = -Math.sin(bot.yaw), fz = -Math.cos(bot.yaw);
-      const safe = this.groundAhead(st.x + fx * 0.8, st.z + fz * 0.8, st.y);
-      const blocked = P.boxHit(this.pworld, st.x + fx * 0.6, st.y, st.z + fz * 0.6);
+      const rx = Math.cos(bot.yaw), rz = -Math.sin(bot.yaw);
+      const probe = 1.0;
+      const groundF = this.groundAhead(st.x + fx * probe, st.z + fz * probe, st.y);
+      const groundB = this.groundAhead(st.x - fx * probe, st.z - fz * probe, st.y);
+      const groundL = this.groundAhead(st.x - rx * probe, st.z - rz * probe, st.y);
+      const groundR = this.groundAhead(st.x + rx * probe, st.z + rz * probe, st.y);
+      const wallF = P.boxHit(this.pworld, st.x + fx * probe, st.y + 0.05, st.z + fz * probe);
+      const wallB = P.boxHit(this.pworld, st.x - fx * probe, st.y + 0.05, st.z - fz * probe);
+      const wallL = P.boxHit(this.pworld, st.x - rx * probe, st.y + 0.05, st.z - rz * probe);
+      const wallR = P.boxHit(this.pworld, st.x + rx * probe, st.y + 0.05, st.z + rz * probe);
+      const tallF = P.boxHit(this.pworld, st.x + fx * probe, st.y + 1.25, st.z + fz * probe);
+      const safeF = groundF && !wallF;
+      const safeB = groundB && !wallB;
+      const safeL = groundL && !wallL;
+      const safeR = groundR && !wallR;
+      const lowHp = bot.hp <= 6;
+      const inReach = dist < 2.75 && Math.abs(dy) < 1.65;
+      const clear = this.botLineClear(st, me.st);
+      let f = false, b = false, l = false, r = false;
+      let wantJump = false;
+
+      const orbit = () => {
+        if (ai.strafe > 0 && safeR) r = true;
+        else if (ai.strafe < 0 && safeL) l = true;
+        else if (safeL) l = true;
+        else if (safeR) r = true;
+      };
+
+      if (lowHp && dist < 3.4) {
+        if (safeB) b = true;
+        else orbit();
+      } else if (dist > 2.45) {
+        if (safeF) {
+          f = true;
+          ai.detourT = 0;
+        } else if (groundF && wallF) {
+          if (st.ground && !tallF) { f = true; wantJump = true; }
+          else {
+            if (ai.detourT <= 0) {
+              if (!ai.detour) ai.detour = safeR && safeL ? ai.strafe : safeR ? 1 : safeL ? -1 : 0;
+              ai.detourT = 1.15;
+            }
+            if (ai.detour && !(ai.detour > 0 ? safeR : safeL)) {
+              if (ai.detour > 0 ? safeL : safeR) { ai.detour *= -1; ai.detourT = 1.15; }
+              else ai.detour = 0;
+            }
+            if (ai.detour > 0) r = true;
+            else if (ai.detour < 0) l = true;
+            else orbit();
+          }
+        } else orbit();
+      } else if (dist < 1.35) {
+        if (safeB) b = true;
+        else orbit();
+      } else if (dist > 2.15 && safeF) {
+        f = true;
+      }
+
+      if (dist < 3.2) orbit();
+
+      if (st.ground && ai.dodgeCD <= 0 && me.swing > 0.35 && dist < 3) {
+        wantJump = true;
+        ai.dodgeCD = 1.1;
+        ai.strafe *= -1;
+        ai.strafeT = 0.5 + Math.random() * 0.4;
+      }
+
+      if (st.ground && dy > 0.9 && dist < 4.5) wantJump = true;
+
+      ai.stuckT += dt;
+      if (ai.stuckT >= 0.6) {
+        const moved = Math.hypot(st.x - ai.lastX, st.z - ai.lastZ);
+        if (moved < 0.12 && (f || b || l || r)) {
+          ai.strafe *= -1;
+          ai.strafeT = 1;
+          if (st.ground) wantJump = true;
+        }
+        ai.lastX = st.x;
+        ai.lastZ = st.z;
+        ai.stuckT = 0;
+      }
+
+      if (wantJump) ai.jumpHold = 0.18;
+      else ai.jumpHold = Math.max(0, ai.jumpHold - dt);
+
       const inp = {
-        f: dist > 1.9 && safe, b: false,
-        l: !safe && dist > 1.2 && Math.sin(this.moveT * 2.1) > 0,
-        r: !safe && dist > 1.2 && Math.sin(this.moveT * 2.1) <= 0,
-        jumpPressed: blocked || (st.ground && dist > 3 && Math.random() < 0.012),
-        jump: false, sneak: false, sprintKey: dist > 5, yaw: bot.yaw, slow: 1,
+        f: f, b: b, l: l, r: r,
+        jumpPressed: wantJump && st.ground,
+        jump: ai.jumpHold > 0, sneak: false,
+        sprintKey: dist > 3.6 && !lowHp && safeF,
+        yaw: bot.yaw, slow: 1,
       };
       const ev = P.tick(st, inp, this.pworld, this.voidY);
       if (st.on && st.on.mover) {
@@ -1309,31 +1403,45 @@
 
       bot.swing = Math.max(0, bot.swing - dt * 5);
       bot.attackCD = Math.max(0, (bot.attackCD || 0) - 1);
-      if (dist < 2.7 && Math.abs(angleTo(bot.yaw, want)) < 0.9 && bot.attackCD <= 0) {
-        if (Math.random() < 0.55) {
-          bot.attackCD = 15 + ((Math.random() * 8) | 0);
+      if (inReach && clear && Math.abs(angleTo(bot.yaw, want)) < 0.6 && bot.attackCD <= 0) {
+        if (Math.random() < 0.8) {
+          const crit = C.crit(st);
+          bot.attackCD = 12 + ((Math.random() * 7) | 0);
           bot.swing = 1;
           VOX.Audio.play('swing');
-          let dmg = C.BASE_DAMAGE;
+          let dmg = P.dmgOf(C.BASE_DAMAGE, crit);
           if (me.block) dmg = Math.max(1, Math.round(dmg * C.SWORD_BLOCK_MULT));
           const applied = C.applyDamage(me, dmg);
           if (applied > 0) {
-            const kb = 0.135;
+            let kb = 0.135;
+            if (st.sprint && st.kb) { kb = 0.36; st.kb = false; }
             me.st.vx -= Math.sin(bot.yaw) * kb;
             me.st.vz -= Math.cos(bot.yaw) * kb;
             me.st.vy = 0.135;
             me.lastAttacker = bot.id;
             me.hitFlash = 12;
-            this.impactFrames(false, true);
+            this.impactFrames(crit, true);
             if (me.block) VOX.Audio.play('block');
             else VOX.Audio.play('hurt');
             VOX.Audio.play('impact');
-            this.world.spark(me.st.x, me.st.y + 1.2, me.st.z, 0xff5c5c, 8, 3);
+            this.world.spark(me.st.x, me.st.y + 1.2, me.st.z, crit ? 0xffd23f : 0xff5c5c, crit ? 12 : 8, 3);
             if (me.hp <= 0) this.pvpDeath('kill', bot.id);
+            ai.strafe *= -1;
+            ai.strafeT = 0.55 + Math.random() * 0.35;
           }
-        } else bot.attackCD = 6;
+        } else {
+          bot.attackCD = 6;
+        }
       }
       this.updateBotLabel(bot);
+    },
+
+    botLineClear(st, target) {
+      const eye = { x: st.x, y: st.y + 1.55, z: st.z };
+      const tx = target.x - eye.x, ty = target.y + 1 - eye.y, tz = target.z - eye.z;
+      const len = Math.hypot(tx, ty, tz);
+      if (len < 0.3) return true;
+      return !this.lineBlocked(eye, { x: tx / len, y: ty / len, z: tz / len }, Math.max(0, len - 0.45));
     },
 
     groundAhead(x, z, y) {
@@ -1357,7 +1465,7 @@
       st.slideT = 0; st.slideCD = 0; st.boostT = 0; st.grapple = null;
       st.airJumps = P.CFG.airJumps; st.coyote = 0; st.jumpCut = false;
       bot.hp = C.MAX_HP; bot.invuln = 60; bot.lastHit = 0; bot.dead = false;
-      bot.yaw = s.yaw; bot.pitch = 0;
+      bot.yaw = s.yaw; bot.pitch = 0; bot.ai = null;
       if (bot.rig) bot.rig.root.visible = true;
       this.updateBotLabel(bot);
     },
@@ -1384,9 +1492,7 @@
       this.remotes.forEach((e) => { if (!e.dead) players.push(e.st); });
       if (!P.canPlaceBlock(this.pworld, hit.placeCell, players)) return;
       const cell = hit.placeCell;
-      const slot = this.mode === 'bridge' ? this.selected : this.buildSel;
-      const type = (HOTBAR[slot] || HOTBAR[0]).type;
-      const b = { x: cell[0] + 0.5, y: cell[1] + 1, z: cell[2] + 0.5, w: 1, d: 1, th: 1, t: type };
+      const b = { x: cell[0] + 0.5, y: cell[1] + 1, z: cell[2] + 0.5, w: 1, d: 1, th: 1, t: HOTBAR[0].type };
       this.addBlockObject(b);
       VOX.Audio.play('place');
       this.world.spark(b.x, b.y - 0.5, b.z, 0xffffff, 4, 2);
@@ -1401,7 +1507,7 @@
       const hit = P.raycastWorld(this.pworld, eye, dir, P.CFG.reach);
       if (!hit || !hit.box) return;
       const b = hit.box;
-      if (b.t === 'wall' || b.isStart || b.isFinish || b.isEnclosure || b.mover) return;
+      if (!b.placed || b.t === 'wall' || b.isStart || b.isFinish || b.isEnclosure || b.mover) return;
       this.world.spark(b.x, b.y - 0.5, b.z, 0xd9c6a0, 8, 2.5);
       VOX.Audio.play('break');
       this.removeBlockObject(b);
@@ -1409,6 +1515,7 @@
     },
 
     addBlockObject(b) {
+      b.placed = true;
       this.blocks.push(b);
       this.pworld.push(b);
       this.world.addBox(b);
@@ -1437,6 +1544,7 @@
       if (!this.allowBuild || !d) return;
       for (let i = 0; i < this.blocks.length; i++) {
         const b = this.blocks[i];
+        if (!b.placed) continue;
         if (Math.abs(b.x - d.x) < 0.01 && Math.abs(b.y - d.y) < 0.01 &&
             Math.abs(b.z - d.z) < 0.01 && b.t === d.t) {
           this.removeBlockObject(b);
@@ -1447,8 +1555,8 @@
     },
 
     updateHeldSlot() {
-      if (this.mode === 'bridge') {
-        const type = HOTBAR[this.selected] ? HOTBAR[this.selected].type : 'wool_red';
+      if (this.isBuildSlot()) {
+        const type = HOTBAR[0].type;
         if (this.viewmodel) this.viewmodel.setSlot(1, type);
         if (this.localRig) this.localRig.setHeldSlot(1, type);
         return;
@@ -1770,7 +1878,6 @@
       this.raceResults = [];
       this.placedCount = 0;
       this.selected = 0;
-      this.buildSel = 0;
       this.inspectId = null;
       this.swing = 0;
       this.attackCD = 0;
@@ -1859,14 +1966,14 @@
         teamColor: this.myTeamColor(), showTag: true, swordTier: 'diamond',
       });
       this.localRig.root.position.set(spawn.x, spawn.y, spawn.z);
-      if (mode === 'bridge') this.localRig.setHeldSlot(1, HOTBAR[this.selected].type);
+      if (mode === 'bridge') this.localRig.setHeldSlot(1, HOTBAR[0].type);
       else if (this.localRig.setWeapon) this.localRig.setWeapon('sword');
       this.scene.add(this.localRig.root);
       this.localRig.root.visible = this.thirdPerson;
 
       this.viewmodel = VOX.Player.createViewmodel(this.profile.skin);
       if (this.viewmodel.holder) this.viewmodel.holder.scale.setScalar(0.46);
-      if (mode === 'bridge') this.viewmodel.setSlot(1, HOTBAR[this.selected].type);
+      if (mode === 'bridge') this.viewmodel.setSlot(1, HOTBAR[0].type);
       else if (this.viewmodel.setWeapon) this.viewmodel.setWeapon('sword');
 
       this.remotes = new Map();
@@ -2852,15 +2959,14 @@
         });
       }
       if (this.mode === 'bridge') {
-        h.hotbar = HOTBAR.map((b, i) => ({ label: b.label, color: b.color, selected: i === this.selected }));
-        h.hint = '<kbd>LMB</kbd> break | <kbd>RMB</kbd> place | <kbd>1-5</kbd> blocks | <kbd>C</kbd> slide | <kbd>Space</kbd>x2 jump | <kbd>E</kbd> hook';
+        h.hotbar = [{ label: 'Blocks', color: BLOCK_SLOT.color, selected: true }];
+        h.hint = '<kbd>LMB</kbd> break placed blocks | <kbd>RMB</kbd> place blocks | <kbd>C</kbd> slide | <kbd>Space</kbd>x2 jump | <kbd>E</kbd> hook';
       } else {
-        h.hotbar = WEAPON_SLOTS.map((w) => ({ label: w.label, color: w.color, selected: me.weapon === w.id }));
-        if (this.allowBuild) {
-          h.build = HOTBAR.map((b, i) => ({ label: b.label, color: b.color, selected: i === this.buildSel }));
-        }
+        const slots = this.activeSlots();
+        h.hotbar = slots.map((s, i) => ({ label: s.label, color: s.color, selected: i === this.selected }));
         if (pvp) {
-          h.hint = '<kbd>1-4</kbd> weapons | <kbd>LMB</kbd> attack | <kbd>RMB</kbd> spear charge / block | <kbd>F</kbd> place | <kbd>G</kbd> break | <kbd>B</kbd> block | <kbd>Tab</kbd> scores | <kbd>C</kbd> slide | <kbd>Space</kbd>x2 jump';
+          h.hint = '<kbd>1-4</kbd> weapons' + (this.allowBuild ? ' | <kbd>5</kbd> blocks' : '') +
+            ' | <kbd>LMB</kbd> attack / break placed blocks | <kbd>RMB</kbd> spear charge / guard / place block | <kbd>Tab</kbd> scores | <kbd>C</kbd> slide | <kbd>Space</kbd>x2 jump';
         } else if (this.mode === 'race') {
           h.hint = '<kbd>1-4</kbd> weapons | <kbd>LMB</kbd> bump rivals | <kbd>RMB</kbd> spear charge | <kbd>C</kbd> slide | <kbd>E</kbd> grapple';
         } else {
@@ -2998,7 +3104,7 @@
           speed: speed, yaw: me.yaw, pitch: me.pitch,
           sneak: !!this.keys.ShiftLeft || !!this.keys.ShiftRight,
           sprint: !!st.sprint, ground: !!st.ground, slide: st.slideT > 0,
-          swing: this.swing, block: !!me.block, weapon: this.mode === 'bridge' ? null : me.weapon,
+          swing: this.swing, block: !!me.block, weapon: this.isBuildSlot() ? null : me.weapon,
         });
         this.localRig.root.visible = this.thirdPerson && !me.dead;
         if (this.localRig.setHurtFlash) this.localRig.setHurtFlash(me.hitFlash > 0 ? 1 : 0);
@@ -3096,7 +3202,7 @@
         this.viewmodel.update(dt, this.camera.aspect, {
           speed: speed, ground: !!st.ground, sprint: !!st.sprint,
           swing: this.swing || 0, block: !!me.block, eat: 0,
-          slide: sliding, weapon: this.mode === 'bridge' ? null : me.weapon,
+          slide: sliding, weapon: this.isBuildSlot() ? null : me.weapon,
         });
         this.renderer.clearDepth();
         this.renderer.render(this.viewmodel.scene, this.viewmodel.camera);
