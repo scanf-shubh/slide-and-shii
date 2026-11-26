@@ -1,4 +1,4 @@
-﻿// VOX ARENA â€” unified solo, race, duel, team, bot and bridge game loop.
+﻿// VOX ARENA — unified solo, race, duel, team, bot and bridge game loop.
 (function (global) {
   const VOX = (global.VOX = global.VOX || {});
   const THREE = global.THREE;
@@ -6,7 +6,7 @@
   const C = VOX.Combat;
   const LG = VOX.LevelGen;
 
-  const PVP_ARENAS = ['field', 'courtyard', 'sumo', 'inferno', 'frostbite', 'dunes'];
+  const PVP_ARENAS = ['field', 'courtyard', 'sumo', 'inferno', 'frostbite', 'dunes', 'citadel', 'foundry', 'skyway', 'colosseum', 'reactor', 'ffa'];
   const HOTBAR = [
     { type: 'wool_red', label: 'Wool', color: '#c8372d' },
     { type: 'planks', label: 'Plank', color: '#b98a53' },
@@ -68,12 +68,13 @@
     mode: null, matchPlayers: [], myIndex: 0, scores: {}, raceResults: [], remotes: new Map(), bot: null, me: null,
     keys: {}, jumpPressed: false, sprintDouble: false, lastW: 0,
     mouseLeft: false, mouseRight: false, attackCD: 0, attackBuffer: 0, spearCharge: 0, spearChargeActive: false, useCD: 0, swing: 0, stepT: 0, boostCD: 0,
-    selected: 0, thirdPerson: false, hadLock: false, pauseFrom: null, pauseStart: 0, inspectId: null,
+    selected: 0, buildSel: 0, thirdPerson: false, hadLock: false, pauseFrom: null, pauseStart: 0, inspectId: null,
     moveT: 0, acc: 0, hudAcc: 0, last: 0, lastStateSent: 0, lastSolo: null, currentSkin: 'steve',
     renderScale: 1, perfT: 0, perfN: 0,
     hitPause: 0, shake: 0, shakeT: 0, shakeDur: 0.18, impactFlash: 0, prevLocal: null,
     lookYaw: 0, lookPitch: 0, targetYaw: 0, targetPitch: 0, lookReady: false, lookIgnoreUntil: 0,
     slidePressed: false, grappleHeld: false, grappleCD: 0, grappleRope: null, swingWeapon: 'sword',
+    scoresVisible: false, ffaTime: 300,
     playerHook: null, arrows: [], arrowSeq: 0,
 
     saveProfile() {
@@ -175,11 +176,13 @@
       global.addEventListener('blur', () => {
         this.keys = {}; this.jumpPressed = false; this.mouseLeft = false; this.mouseRight = false;
         this.lookReady = false;
+        this.scoresVisible = false;
       });
       document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
           this.lookReady = false;
           this.keys = {}; this.jumpPressed = false; this.mouseLeft = false; this.mouseRight = false;
+          this.scoresVisible = false;
         }
       });
       document.addEventListener('mousemove', (e) => this.onMouseMove(e));
@@ -270,7 +273,13 @@
       const k = e.code;
       if (down) this.keys[k] = true; else this.keys[k] = false;
       if (k === 'Space') e.preventDefault();
+      if (k === 'Tab' && down && (this.state === 'playing' || this.state === 'countdown') && this.isPvp()) e.preventDefault();
       if (!down) {
+        if (k === 'Tab') {
+          this.scoresVisible = false;
+          this.buildHud(performance.now());
+          VOX.UI.updateHUD(this);
+        }
         if (k === 'KeyW') this.sprintDouble = false;
         if (k === 'KeyE') { this.grappleHeld = false; this.releaseGrapple(); }
         return;
@@ -287,6 +296,14 @@
       if (this.state === 'paused') return;
       if (this.state !== 'playing' && this.state !== 'countdown') return;
 
+      if (k === 'Tab') {
+        if (this.isPvp()) {
+          this.scoresVisible = true;
+          this.buildHud(performance.now());
+          VOX.UI.updateHUD(this);
+        }
+        return;
+      }
       if (k === 'Space' && this.state === 'playing') this.jumpPressed = true;
       if (k === 'KeyW') {
         const now = performance.now();
@@ -308,6 +325,11 @@
       }
       if (k === 'KeyI' && this.state === 'playing') {
         this.inspectId = this.pickInspectTarget();
+      }
+      if (k === 'KeyB' && this.state === 'playing' && this.allowBuild && this.mode !== 'bridge') {
+        this.buildSel = (this.buildSel + 1) % HOTBAR.length;
+        this.buildHud(performance.now());
+        VOX.UI.updateHUD(this);
       }
       if (k.indexOf('Digit') === 0) {
         const n = +k.slice(5) - 1;
@@ -383,6 +405,7 @@
       if (this.state === 'playing' || this.state === 'countdown') this.updateLook(dt);
 
       if (this.state === 'countdown') this.updateCountdown(now);
+      if (this.state === 'playing' && this.mode === 'ffa' && this.multiplayer && this.isHost()) this.checkFfaTimer(now);
       if (this.state === 'playing') {
         this.acc += dt;
         let steps = 0;
@@ -485,7 +508,7 @@
           this.spearCharge = Math.min(C.weapon('spear').chargeMax, this.spearCharge + 1);
         }
       }
-      const block = (this.mode === 'duel' || this.mode === 'team' || this.mode === 'bot') && this.mouseRight && me.weapon !== 'spear';
+      const block = this.isPvp() && this.mouseRight && me.weapon !== 'spear';
       me.block = block;
       const inp = {
         f: !!this.keys.KeyW, b: !!this.keys.KeyS, l: !!this.keys.KeyA, r: !!this.keys.KeyD,
@@ -639,7 +662,7 @@
       VOX.UI.toast('Back to the bridge', '#8be02a');
     },
 
-    isPvp() { return this.mode === 'duel' || this.mode === 'team' || this.mode === 'bot'; },
+    isPvp() { return this.mode === 'duel' || this.mode === 'team' || this.mode === 'bot' || this.mode === 'ffa'; },
 
     isRace() { return this.mode === 'race'; },
 
@@ -1209,13 +1232,29 @@
       }
     },
 
-    hostEndMatch(winnerId, winnerTeam) {
+    checkFfaTimer(now) {
+      if (!this.matchStart || this.state !== 'playing') return;
+      const remain = (this.ffaTime || 300) * 1000 - (now - this.matchStart);
+      if (remain > 0) return;
+      let best = -1; const winners = [];
+      this.matchPlayers.forEach((p) => {
+        const k = (this.scores[p.id] || {}).kills || 0;
+        if (k > best) { best = k; winners.length = 0; winners.push(p.id); }
+        else if (k === best) winners.push(p.id);
+      });
+      if (!winners.length) return;
+      const winnerId = winners.length === 1 ? winners[0] : null;
+      const title = winnerId ? this.nameOf(winnerId) + ' WINS' : 'DRAW';
+      this.hostEndMatch(winnerId, null, title);
+    },
+
+    hostEndMatch(winnerId, winnerTeam, title) {
       const result = {
         mode: this.mode, winnerId: winnerId, winnerTeam: winnerTeam,
         scores: this.scoresSnapshot(),
-        title: winnerTeam !== null && winnerTeam !== undefined
+        title: title || (winnerTeam !== null && winnerTeam !== undefined
           ? (winnerTeam === 0 ? 'CYAN TEAM WINS' : 'RED TEAM WINS')
-          : (this.nameOf(winnerId) + ' WINS'),
+          : (this.nameOf(winnerId) + ' WINS')),
       };
       this.net.send({ type: 'match_over', result: result });
       this.endPvpMatch(result);
@@ -1261,6 +1300,9 @@
         jump: false, sneak: false, sprintKey: dist > 5, yaw: bot.yaw, slow: 1,
       };
       const ev = P.tick(st, inp, this.pworld, this.voidY);
+      if (st.on && st.on.mover) {
+        st.x += st.on._dx || 0; st.y += st.on._dy || 0; st.z += st.on._dz || 0;
+      }
       if (ev.fell || st.y < (this.basinY || this.voidY + 2)) { this.onBotDeath(bot); return; }
       bot.target.x = st.x; bot.target.y = st.y; bot.target.z = st.z;
       bot.cur.x = st.x; bot.cur.y = st.y; bot.cur.z = st.z;
@@ -1331,6 +1373,7 @@
 
     placeBlock() {
       if (!this.allowBuild || this.useCD > 0 || !this.me || this.me.dead) return;
+      if (this.mode !== 'bridge' && this.placedCount >= 120) return;
       this.useCD = 5;
       const eye = C.eye(this.me.st, false);
       const dir = C.dirFrom(this.me.yaw, this.me.pitch);
@@ -1341,7 +1384,9 @@
       this.remotes.forEach((e) => { if (!e.dead) players.push(e.st); });
       if (!P.canPlaceBlock(this.pworld, hit.placeCell, players)) return;
       const cell = hit.placeCell;
-      const b = { x: cell[0] + 0.5, y: cell[1] + 1, z: cell[2] + 0.5, w: 1, d: 1, th: 1, t: HOTBAR[this.selected].type };
+      const slot = this.mode === 'bridge' ? this.selected : this.buildSel;
+      const type = (HOTBAR[slot] || HOTBAR[0]).type;
+      const b = { x: cell[0] + 0.5, y: cell[1] + 1, z: cell[2] + 0.5, w: 1, d: 1, th: 1, t: type };
       this.addBlockObject(b);
       VOX.Audio.play('place');
       this.world.spark(b.x, b.y - 0.5, b.z, 0xffffff, 4, 2);
@@ -1356,7 +1401,7 @@
       const hit = P.raycastWorld(this.pworld, eye, dir, P.CFG.reach);
       if (!hit || !hit.box) return;
       const b = hit.box;
-      if (b.t === 'wall' || b.isStart || b.isFinish || b.isEnclosure) return;
+      if (b.t === 'wall' || b.isStart || b.isFinish || b.isEnclosure || b.mover) return;
       this.world.spark(b.x, b.y - 0.5, b.z, 0xd9c6a0, 8, 2.5);
       VOX.Audio.play('break');
       this.removeBlockObject(b);
@@ -1714,6 +1759,8 @@
       this.cleanupMatch();
       this.matchConfig = config;
       this.mode = config.mode;
+      this.ffaTime = config.ffaTime === 600 ? 600 : (config.ffaTime || 300);
+      this.scoresVisible = false;
       this.matchPlayers = config.players.map((p) => Object.assign({}, p));
       this.myIndex = Math.max(0, this.matchPlayers.findIndex((p) => p.id === this.myId));
       this.scores = {};
@@ -1723,6 +1770,7 @@
       this.raceResults = [];
       this.placedCount = 0;
       this.selected = 0;
+      this.buildSel = 0;
       this.inspectId = null;
       this.swing = 0;
       this.attackCD = 0;
@@ -1750,7 +1798,7 @@
       this.arena = null;
 
       const mode = config.mode;
-      this.multiplayer = (mode === 'race' || mode === 'duel' || mode === 'team') && this.net.isConnected();
+      this.multiplayer = (mode === 'race' || mode === 'duel' || mode === 'team' || mode === 'ffa') && this.net.isConnected();
       let blocks;
 
       if (mode === 'solo' || mode === 'race') {
@@ -1773,7 +1821,7 @@
         this.levelName = arena.name;
         this.cpTotal = 0;
         this.voidY = arena.voidY;
-        this.allowBuild = mode === 'bridge' || (!!arena.allowBuild && mode !== 'sumo');
+        this.allowBuild = mode === 'bridge' || this.isPvp();
       }
 
       if (this.arena && this.arena.noEnclose) {
@@ -1986,6 +2034,7 @@
         code: this.room.code, mode: this.room.mode,
         difficulty: this.room.difficulty, theme: this.room.theme,
         arena: this.room.arena || '', seed: this.room.seed, hostId: this.room.hostId,
+        ffaTime: this.room.ffaTime || 300,
         players: this.room.players.map((p) => ({
           id: p.id, name: p.name, skin: p.skin, color: p.color, team: p.team,
           ready: !!p.ready, host: p.id === this.room.hostId,
@@ -2004,6 +2053,7 @@
         arena: snap.arena || '',
         seed: (snap.seed >>> 0) || LG.randomSeed(),
         hostId: snap.hostId || null,
+        ffaTime: snap.ffaTime === 600 ? 600 : 300,
         players: (snap.players || []).map((p) => Object.assign({}, p)),
       };
       this.room.me = this.room.players.find((p) => p.id === this.myId) || null;
@@ -2011,7 +2061,49 @@
 
     assignTeams() {
       if (!this.room) return;
-      this.room.players.forEach((p, i) => { p.team = i % 2; });
+      const ps = this.room.players;
+      if (this.room.mode !== 'team') {
+        ps.forEach((p, i) => { p.team = i % 2; });
+        return;
+      }
+      ps.forEach((p) => { if (p.team !== 0 && p.team !== 1) p.team = -1; });
+      const counts = [0, 0];
+      ps.forEach((p) => { if (p.team === 0 || p.team === 1) counts[p.team]++; });
+      ps.forEach((p) => {
+        if (p.team !== -1) return;
+        const t = counts[0] <= counts[1] ? 0 : 1;
+        p.team = t; counts[t]++;
+      });
+      for (const t of [0, 1]) {
+        while (counts[t] > 2) {
+          const movers = ps.filter((p) => p.team === t && p.id !== this.room.hostId);
+          const p = movers[movers.length - 1] || ps.filter((x) => x.team === t)[ps.filter((x) => x.team === t).length - 1];
+          if (!p) break;
+          p.team = 1 - t; counts[t]--; counts[1 - t]++;
+        }
+      }
+    },
+
+    setPlayerTeam(id, team) {
+      if (!this.room || !this.isHost() || this.room.mode !== 'team') return;
+      const p = this.room.players.find((x) => x.id === id);
+      if (!p) return;
+      team = team === 1 ? 1 : 0;
+      if ((p.team & 1) === team) return;
+      const onTeam = this.room.players.filter((x) => x.id !== id && (x.team & 1) === team);
+      if (onTeam.length >= 2) {
+        const swap = onTeam[onTeam.length - 1];
+        swap.team = 1 - team;
+      }
+      p.team = team;
+      this.broadcastLobby();
+      this.refreshLobby();
+    },
+
+    requestTeam(id, team) {
+      if (!this.room || this.room.mode !== 'team') return;
+      if (this.isHost()) this.setPlayerTeam(id || this.myId, team);
+      else this.net.send({ type: 'team_req', id: id || this.myId, team: team === 1 ? 1 : 0 });
     },
 
     upsertPlayer(id, info) {
@@ -2047,7 +2139,7 @@
       try {
         this.leaveNet();
         this.cleanupMatch();
-        VOX.UI.showConnecting('Creating roomâ€¦');
+        VOX.UI.showConnecting('Creating room…');
         const code = makeCode();
         let res;
         if (this.serverAvailable) {
@@ -2064,6 +2156,7 @@
           difficulty: this.solo.difficulty || 'standard',
           theme: this.solo.theme || '',
           arena: '',
+          ffaTime: 300,
           seed: LG.randomSeed(),
           hostId: this.myId,
           players: [Object.assign(this.selfPlayer(this.myId), { host: true, ready: true })],
@@ -2092,7 +2185,7 @@
       try {
         this.leaveNet();
         this.cleanupMatch();
-        VOX.UI.showConnecting('Joining ' + clean + 'â€¦');
+        VOX.UI.showConnecting('Joining ' + clean + '…');
         let res;
         if (this.serverAvailable) {
           res = await this.net.connectWS(undefined, clean, this.playerInfo());
@@ -2107,7 +2200,7 @@
         } else {
           this.room = {
             code: res.room || clean, mode: 'race', difficulty: 'standard', theme: '', arena: '',
-            seed: LG.randomSeed(), hostId: res.isHost ? this.myId : null,
+            ffaTime: 300, seed: LG.randomSeed(), hostId: res.isHost ? this.myId : null,
             players: [Object.assign(this.selfPlayer(this.myId), { host: !!res.isHost, ready: true })],
             me: null,
           };
@@ -2169,6 +2262,7 @@
 
     setRoomOptions(o) {
       if (!this.isHost() || !this.room) return;
+      if (o && o.ffaTime !== undefined) o.ffaTime = o.ffaTime === 600 ? 600 : 300;
       Object.assign(this.room, o);
       this.broadcastLobby();
       this.refreshLobby();
@@ -2191,14 +2285,21 @@
       if (mode === 'race' && n < 1) return;
       if (mode === 'duel' && n !== 2) return;
       if (mode === 'team' && n !== 4) return;
+      if (mode === 'ffa' && n < 2) return;
+      if (mode === 'team') {
+        const c0 = this.room.players.filter((p) => (p.team & 1) === 0).length;
+        const c1 = this.room.players.filter((p) => (p.team & 1) === 1).length;
+        if (c0 !== 2 || c1 !== 2) return;
+      }
       if (!this.room.players.every((p) => p.id === this.room.hostId || p.ready)) return;
       this.assignTeams();
       const seed = this.room.seed >>> 0;
       const picked = this.room.arena && VOX.Arenas[this.room.arena] ? this.room.arena : '';
-      const arena = (mode === 'duel' || mode === 'team') ? (picked || PVP_ARENAS[seed % PVP_ARENAS.length]) : null;
+      const arena = mode === 'ffa' ? (picked || 'ffa')
+        : (mode === 'duel' || mode === 'team') ? (picked || PVP_ARENAS[seed % PVP_ARENAS.length]) : null;
       const config = {
         mode: mode, seed: seed, difficulty: this.room.difficulty, theme: this.room.theme,
-        arena: arena,
+        arena: arena, ffaTime: this.room.ffaTime || 300,
         players: this.room.players.map((p) => ({
           id: p.id, name: p.name, skin: p.skin, color: p.color, team: p.team & 1,
         })),
@@ -2214,10 +2315,11 @@
       const mode = this.room.mode;
       const seed = this.room.seed >>> 0;
       const picked = this.room.arena && VOX.Arenas[this.room.arena] ? this.room.arena : '';
-      const arena = (mode === 'duel' || mode === 'team') ? (picked || PVP_ARENAS[seed % PVP_ARENAS.length]) : null;
+      const arena = mode === 'ffa' ? (picked || 'ffa')
+        : (mode === 'duel' || mode === 'team') ? (picked || PVP_ARENAS[seed % PVP_ARENAS.length]) : null;
       const config = {
         mode: mode, seed: seed, difficulty: this.room.difficulty, theme: this.room.theme,
-        arena: arena,
+        arena: arena, ffaTime: this.room.ffaTime || 300,
         players: this.room.players.map((p) => ({
           id: p.id, name: p.name, skin: p.skin, color: p.color, team: p.team & 1,
         })),
@@ -2292,6 +2394,10 @@
           const p = this.room.players.find((x) => x.id === msg.id);
           if (p) { p.ready = !!msg.ready; this.broadcastLobby(); this.refreshLobby(); }
         }
+        return;
+      }
+      if (t === 'team_req') {
+        if (this.isHost() && this.state === 'lobby') this.setPlayerTeam(msg.id, msg.team);
         return;
       }
       if (t === 'player_joined') {
@@ -2580,7 +2686,7 @@
       ov.style.display = 'flex';
       ov.innerHTML =
         '<div class="shell" style="max-width:460px;margin:auto"><div class="panel"><h2>Paused</h2>' +
-        '<p class="sub">' + esc(this.levelName || '') + (this.room ? ' Â· room ' + esc(this.room.code) : '') + '</p>' +
+        '<p class="sub">' + esc(this.levelName || '') + (this.room ? ' · room ' + esc(this.room.code) : '') + '</p>' +
         '<div class="actions"><button class="pri" id="pauseResume">Resume</button>' +
         '<button id="pauseSettings">Settings</button>' +
         '<button id="pauseControls">Controls</button>' +
@@ -2670,23 +2776,31 @@
       const me = this.me;
       if (!me) return;
       const pvp = this.isPvp();
-      let time = 0;
+      let time = 0, timeLow = false;
       if (this.mode === 'solo' || this.mode === 'race') {
         if (me.finished) time = me.finishTime;
         else if (this.state === 'playing') time = (now - this.matchStart) / 1000;
+      } else if (this.mode === 'ffa') {
+        const limit = this.ffaTime || 300;
+        time = this.state === 'playing' && this.matchStart
+          ? Math.max(0, limit - (now - this.matchStart) / 1000)
+          : limit;
+        timeLow = time <= 30;
       } else if (this.state === 'playing' && this.matchStart) {
         time = (now - this.matchStart) / 1000;
       }
       const h = {
         time: pvp ? clock(time) : fmtTime(time),
+        timeLow: timeLow,
         levelName: this.levelName || 'VOX Arena',
         cpText: (this.mode === 'solo' || this.mode === 'race')
-          ? 'CP ' + me.cp + ' / ' + this.cpTotal + (me.falls ? ' Â· falls ' + me.falls : '')
+          ? 'CP ' + me.cp + ' / ' + this.cpTotal + (me.falls ? ' · falls ' + me.falls : '')
           : '',
-        pos: 'X ' + me.st.x.toFixed(1) + ' Â· Y ' + me.st.y.toFixed(1) + ' Â· Z ' + me.st.z.toFixed(1),
+        pos: 'X ' + me.st.x.toFixed(1) + ' · Y ' + me.st.y.toFixed(1) + ' · Z ' + me.st.z.toFixed(1),
         speed: (Math.hypot(me.st.vx, me.st.vz) * TPS).toFixed(1) + ' m/s',
         ping: this.multiplayer ? (this.ping ? this.ping + ' ms' : (this.netMode || '')) : '',
         hotbar: null,
+        build: null,
         racebars: null,
         hint: '',
         crosshair: !!this.settings.xh,
@@ -2698,16 +2812,30 @@
         h.hp = me.hp;
         h.maxHp = C.MAX_HP;
         const mine = this.scores[this.myId] || { kills: 0, deaths: 0 };
-        if (this.mode === 'team') {
-          h.scoreText = 'CYAN ' + this.teamKills(0) + ' â€” ' + this.teamKills(1) + ' RED Â· you ' + mine.kills + ' KO';
+        if (this.mode === 'ffa') {
+          let best = 0;
+          this.matchPlayers.forEach((p) => { best = Math.max(best, (this.scores[p.id] || {}).kills || 0); });
+          h.scoreText = 'KOs ' + mine.kills + ' | leader ' + best;
+        } else if (this.mode === 'team') {
+          h.scoreText = 'CYAN ' + this.teamKills(0) + ' — ' + this.teamKills(1) + ' RED · you ' + mine.kills + ' KO';
         } else if (this.mode === 'bot') {
           const b = this.scores.bot || { kills: 0 };
-          h.scoreText = 'KOs ' + mine.kills + ' / 5 Â· Bot ' + (b.kills || 0) + ' / 5';
+          h.scoreText = 'KOs ' + mine.kills + ' / 5 · Bot ' + (b.kills || 0) + ' / 5';
         } else {
           let opp = null;
           this.matchPlayers.forEach((p) => { if (p.id !== this.myId) opp = this.scores[p.id]; });
-          h.scoreText = 'KOs ' + mine.kills + ' / 5' + (opp ? ' Â· rival ' + opp.kills + ' / 5' : '');
+          h.scoreText = 'KOs ' + mine.kills + ' / 5' + (opp ? ' · rival ' + opp.kills + ' / 5' : '');
         }
+      }
+      if (pvp && this.scoresVisible) {
+        h.scoreboard = this.matchPlayers.map((p) => {
+          const s = this.scores[p.id] || { kills: 0, deaths: 0 };
+          return {
+            name: p.name, color: this.colorOf(p.id),
+            kills: s.kills || 0, deaths: s.deaths || 0,
+            me: p.id === this.myId,
+          };
+        }).sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
       }
       if (this.mode === 'race') {
         h.racebars = this.matchPlayers.map((p, i) => {
@@ -2728,8 +2856,11 @@
         h.hint = '<kbd>LMB</kbd> break | <kbd>RMB</kbd> place | <kbd>1-5</kbd> blocks | <kbd>C</kbd> slide | <kbd>Space</kbd>x2 jump | <kbd>E</kbd> hook';
       } else {
         h.hotbar = WEAPON_SLOTS.map((w) => ({ label: w.label, color: w.color, selected: me.weapon === w.id }));
+        if (this.allowBuild) {
+          h.build = HOTBAR.map((b, i) => ({ label: b.label, color: b.color, selected: i === this.buildSel }));
+        }
         if (pvp) {
-          h.hint = '<kbd>1-4</kbd> weapons | <kbd>LMB</kbd> attack | <kbd>RMB</kbd> spear charge / block | <kbd>C</kbd> slide | <kbd>Space</kbd>x2 jump';
+          h.hint = '<kbd>1-4</kbd> weapons | <kbd>LMB</kbd> attack | <kbd>RMB</kbd> spear charge / block | <kbd>F</kbd> place | <kbd>G</kbd> break | <kbd>B</kbd> block | <kbd>Tab</kbd> scores | <kbd>C</kbd> slide | <kbd>Space</kbd>x2 jump';
         } else if (this.mode === 'race') {
           h.hint = '<kbd>1-4</kbd> weapons | <kbd>LMB</kbd> bump rivals | <kbd>RMB</kbd> spear charge | <kbd>C</kbd> slide | <kbd>E</kbd> grapple';
         } else {
@@ -2750,7 +2881,7 @@
       const self = this;
       VOX.UI.showResults({
         title: 'COURSE COMPLETE',
-        subtitle: this.levelName + ' Â· seed ' + (this.level ? this.level.seed : ''),
+        subtitle: this.levelName + ' · seed ' + (this.level ? this.level.seed : ''),
         note: isBest ? '<div class="notice good" style="margin-bottom:12px">New personal best!</div>' : '',
         stats: [
           { value: fmtTime(t), label: 'this run' },
@@ -2796,11 +2927,11 @@
       }
       VOX.UI.showResults({
         title: place === 1 && mine && !mine.dnf ? 'YOU WIN' : 'RACE RESULTS',
-        subtitle: this.levelName + ' Â· ' + (this.room ? 'room ' + this.room.code : 'race'),
+        subtitle: this.levelName + ' · ' + (this.room ? 'room ' + this.room.code : 'race'),
         rows: rows,
         stats: [
           { value: mine && !mine.dnf ? fmtTime(mine.time) : 'DNF', label: 'your time' },
-          { value: place ? ordinal(place) : 'â€”', label: 'placement' },
+          { value: place ? ordinal(place) : '—', label: 'placement' },
           { value: String(mine ? mine.falls : 0), label: 'falls' },
         ],
         actions: actions,
@@ -2814,7 +2945,7 @@
         .sort((a, b) => b.s.kills - a.s.kills || a.s.deaths - b.s.deaths);
       const rows = list.map((r, i) => ({
         rank: i + 1, name: r.p.name, tag: r.p.id === this.myId ? 'you' : '',
-        value: r.s.kills + ' KO Â· ' + r.s.deaths + ' deaths', first: i === 0,
+        value: r.s.kills + ' KO · ' + r.s.deaths + ' deaths', first: i === 0,
       }));
       const mine = scores[this.myId] || { kills: 0, deaths: 0 };
       let title = result.title || 'MATCH RESULTS';
@@ -2822,6 +2953,7 @@
         if (result.winnerTeam !== undefined && result.winnerTeam !== null) {
           title = (result.winnerTeam === 0 ? 'CYAN TEAM' : 'RED TEAM') + ' WINS';
         } else if (result.winnerId) title = this.nameOf(result.winnerId) + ' WINS';
+        else if (this.mode === 'ffa') title = 'DRAW';
       }
       const actions = [];
       if (this.mode === 'bot') {
@@ -2838,12 +2970,18 @@
       }
       VOX.UI.showResults({
         title: title,
-        subtitle: (this.levelName || '') + ' Â· first to ' + (this.mode === 'team' ? '15 team KOs' : '5 KOs'),
+        subtitle: (this.levelName || '') + (this.mode === 'ffa'
+          ? ' · most KOs in ' + Math.round((this.ffaTime || 300) / 60) + ' min'
+          : ' · first to ' + (this.mode === 'team' ? '15 team KOs' : '5 KOs')),
         rows: rows,
-        stats: [
+        stats: this.mode === 'ffa' ? [
           { value: String(mine.kills), label: 'your knockouts' },
           { value: String(mine.deaths), label: 'your deaths' },
-          { value: String(this.teamKills ? this.teamKills(0) + 'â€“' + this.teamKills(1) : 'â€”'), label: 'cyanâ€“red' },
+          { value: Math.round((this.ffaTime || 300) / 60) + ' min', label: 'match timer' },
+        ] : [
+          { value: String(mine.kills), label: 'your knockouts' },
+          { value: String(mine.deaths), label: 'your deaths' },
+          { value: String(this.teamKills ? this.teamKills(0) + '–' + this.teamKills(1) : '—'), label: 'cyan–red' },
         ],
         actions: actions,
       });

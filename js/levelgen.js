@@ -56,6 +56,41 @@
       ground: 'grass', accent: 'quartz', secondary: 'emerald', detail: 'wool_white',
       under: 'dirt', hazard: 'lava', liquid: 'water', log: 'log', leaves: 'leaves', clouds: 22,
     },
+    gears: {
+      id: 'gears', name: 'Clockwork Foundry', isNew: true,
+      skyTop: '#2b3038', skyBottom: '#9aa3ad', fog: 0x77808a, fogNear: 42, fogFar: 190,
+      hemiSky: 0xdde5ee, hemiGround: 0x30343a, sunColor: 0xf1f5fa, sunIntensity: 0.86,
+      ground: 'stone_brick', accent: 'bricks', secondary: 'cobble', detail: 'glowstone',
+      under: 'stone', hazard: 'lava', liquid: 'water', log: 'log', leaves: 'leaves', clouds: 8,
+    },
+    temple: {
+      id: 'temple', name: 'Jade Temple', isNew: true,
+      skyTop: '#1f6f6a', skyBottom: '#d7f2e3', fog: 0xc9ead9, fogNear: 50, fogFar: 210,
+      hemiSky: 0xe9fff6, hemiGround: 0x4d6b52, sunColor: 0xf4ffe8, sunIntensity: 1.0,
+      ground: 'sandstone', accent: 'quartz', secondary: 'emerald', detail: 'gold',
+      under: 'sandstone', hazard: 'lava', liquid: 'water', log: 'log', leaves: 'leaves', clouds: 10,
+    },
+    volcanic: {
+      id: 'volcanic', name: 'Ember Rift', isNew: true,
+      skyTop: '#2a0b0b', skyBottom: '#b84a1f', fog: 0x7a2c16, fogNear: 28, fogFar: 145,
+      hemiSky: 0xffb08a, hemiGround: 0x2a0a0a, sunColor: 0xff8a50, sunIntensity: 0.62, night: true,
+      ground: 'netherrack', accent: 'nether_brick', secondary: 'obsidian', detail: 'glowstone',
+      under: 'netherrack', hazard: 'lava', liquid: 'lava', log: 'log', leaves: 'leaves', clouds: 4,
+    },
+    candy: {
+      id: 'candy', name: 'Sugar Clouds', isNew: true,
+      skyTop: '#ff9ecb', skyBottom: '#fff1f7', fog: 0xffd9ea, fogNear: 62, fogFar: 240,
+      hemiSky: 0xfff3f9, hemiGround: 0xd98aa8, sunColor: 0xffffff, sunIntensity: 1.05,
+      ground: 'wool_white', accent: 'wool_red', secondary: 'wool_lime', detail: 'wool_yellow',
+      under: 'wool_white', hazard: 'lava', liquid: 'water', log: 'log', leaves: 'leaves', clouds: 24,
+    },
+    cyber: {
+      id: 'cyber', name: 'Neon Grid', isNew: true,
+      skyTop: '#0b1026', skyBottom: '#2b1d5e', fog: 0x1a1740, fogNear: 34, fogFar: 165,
+      hemiSky: 0xc4b6ff, hemiGround: 0x141226, sunColor: 0x9fb8ff, sunIntensity: 0.72, night: true,
+      ground: 'deepslate', accent: 'amethyst', secondary: 'prismarine', detail: 'glowstone',
+      under: 'deepslate', hazard: 'lava', liquid: 'water', log: 'log', leaves: 'leaves', clouds: 3,
+    },
   };
 
   const DIFFICULTY = {
@@ -308,6 +343,65 @@
     hop(level, c, { gap: 1.2, xo: 0, dy: 0, w: 2.8, d: 2.8, t: th.ground });
   }
 
+  function sectionMoverRun(level, c, rng, th) {
+    hop(level, c, { gap: 1.6, xo: 0, dy: 0, w: 2.8, d: 2.8, t: th.accent });
+    const n = 3 + ((rng() * 2) | 0);
+    for (let i = 0; i < n; i++) {
+      const m = hop(level, c, {
+        gap: 1.5 + rng() * 0.7,
+        xo: (rng() - 0.5) * 1.6,
+        dy: rng() < 0.3 ? 0.4 : 0,
+        w: 2.4, d: 2.4, t: th.detail || 'planks',
+      });
+      const axis = i === 0 ? 'y' : (rng() < 0.5 ? 'x' : 'z');
+      m.mover = {
+        axis: axis,
+        amp: axis === 'y' ? 1.0 + rng() * 1.0 : 1.4 + rng() * 1.2,
+        speed: 0.6 + rng() * 0.6,
+        phase: rng() * Math.PI * 2,
+        bx: m.x, by: m.y, bz: m.z,
+      };
+      level.movers.push(m);
+    }
+    hop(level, c, { gap: 1.4, xo: 0, dy: 0, w: 3.0, d: 3.0, t: th.ground });
+  }
+
+  function sectionTower(level, c, rng, th) {
+    const n = 5 + ((rng() * 3) | 0);
+    let side = rng() < 0.5 ? -1 : 1;
+    for (let i = 0; i < n; i++) {
+      side *= -1;
+      const b = hop(level, c, {
+        gap: 1.2 + rng() * 0.4,
+        xo: side * (1.0 + rng() * 0.8),
+        dy: 0.55 + rng() * 0.2,
+        w: 1.8 + rng() * 0.5,
+        d: 1.8 + rng() * 0.5,
+        t: th.secondary || th.accent,
+      });
+      addBoxSafe(level, b.x + side * (b.w / 2 + 0.4), b.y + 1.2, b.z, 0.4, 0.4, 1.2, th.accent, { isDecor: true, noDecorate: true });
+    }
+  }
+
+  function sectionBridgeBeam(level, c, rng, th) {
+    const n = 2 + ((rng() * 2) | 0);
+    for (let i = 0; i < n; i++) {
+      const b = hop(level, c, {
+        gap: 1.2 + rng() * 0.5,
+        xo: (rng() - 0.5) * 0.8,
+        dy: (rng() - 0.4) * 0.6,
+        w: 1.3 + rng() * 0.4,
+        d: 6 + rng() * 3,
+        t: th.detail || 'planks',
+      });
+      for (const s of [-1, 1]) {
+        for (let k = -1; k <= 1; k++) {
+          addBoxSafe(level, b.x + s * (b.w / 2 + 0.35), b.y + 1.2, b.z + k * (b.d / 3), 0.4, 0.4, 1.2, th.accent, { isDecor: true, noDecorate: true });
+        }
+      }
+    }
+  }
+
   function sectionHazard(level, c, rng, th) {
     const b = hop(level, c, { gap: 2.0, xo: 0, dy: 0, w: 3.4, d: 3.4, t: th.accent });
     const n = 2 + ((rng() * 3) | 0);
@@ -377,7 +471,7 @@
 
     const c = { x: 0, y: 0, z: -5, w: 10, d: 10 };
     const sections = [];
-    const specialPool = ['ice', 'slime', 'speed', 'neo', 'climb', 'movement', 'hazard', 'pillars', 'beams', 'zigzag', 'stairsUp', 'stairsDown'];
+    const specialPool = ['ice', 'slime', 'speed', 'neo', 'climb', 'movement', 'moverRun', 'tower', 'bridgeBeam', 'hazard', 'pillars', 'beams', 'zigzag', 'stairsUp', 'stairsDown'];
     const weights = dif.weights;
     let last = '';
     let sinceCp = 0;
@@ -389,6 +483,8 @@
         if (name === last) continue;
         if (name === 'hazard' && rng() > weights.hazard * 4) continue;
         if (name === 'movement' && rng() > weights.mover * 4) continue;
+        if (name === 'moverRun' && rng() > weights.mover * 4) continue;
+        if (name === 'tower' && rng() > weights.climb * 0.9) continue;
         if (name === 'ice' && rng() > weights.ice * 0.8) continue;
         if (name === 'slime' && rng() > weights.slime * 0.8) continue;
         if (name === 'climb' && rng() > weights.climb * 0.8) continue;
@@ -410,6 +506,9 @@
       if (name === 'neo') return sectionNeo(level, c, rng, theme);
       if (name === 'climb') return sectionClimb(level, c, rng, theme);
       if (name === 'movement') return sectionMoving(level, c, rng, theme);
+      if (name === 'moverRun') return sectionMoverRun(level, c, rng, theme);
+      if (name === 'tower') return sectionTower(level, c, rng, theme);
+      if (name === 'bridgeBeam') return sectionBridgeBeam(level, c, rng, theme);
       if (name === 'hazard') return sectionHazard(level, c, rng, theme);
       return sectionStraight(level, c, rng, theme);
     }

@@ -78,7 +78,7 @@
       : '<div class="notice">PeerJS rooms work from any static host. Add <b>server.js</b> for a dedicated LAN server.</div>';
     const arenaOptions = '<option value="">Random</option>' + Object.keys(VOX.Arenas)
       .filter((id) => VOX.Arenas[id].mode === 'pvp')
-      .map((id) => '<option value="' + id + '" ' + (app.solo.arena === id ? 'selected' : '') + '>' + esc(VOX.Arenas[id].name) + '</option>')
+      .map((id) => '<option value="' + id + '" ' + (app.solo.arena === id ? 'selected' : '') + '>' + esc(VOX.Arenas[id].name) + (VOX.Arenas[id].isNew ? ' · NEW' : '') + '</option>')
       .join('');
 
     $('overlay').innerHTML =
@@ -94,7 +94,7 @@
       '<div class="row" style="margin-bottom:10px"><label class="field"><span>Difficulty</span><select id="soloDiff">' +
       Object.keys(VOX.LevelGen.DIFFICULTY).map((k) => '<option value="' + k + '" ' + (app.solo.difficulty === k ? 'selected' : '') + '>' + VOX.LevelGen.DIFFICULTY[k].name + '</option>').join('') +
       '</select></label><label class="field"><span>Theme</span><select id="soloTheme"><option value="">Random</option>' +
-      VOX.LevelGen.THEME_IDS.map((k) => '<option value="' + k + '" ' + (app.solo.theme === k ? 'selected' : '') + '>' + VOX.LevelGen.THEMES[k].name + '</option>').join('') +
+      VOX.LevelGen.THEME_IDS.map((k) => '<option value="' + k + '" ' + (app.solo.theme === k ? 'selected' : '') + '>' + VOX.LevelGen.THEMES[k].name + (VOX.LevelGen.THEMES[k].isNew ? ' · NEW' : '') + '</option>').join('') +
       '</select></label><label class="field"><span>Bot arena</span><select id="soloArena">' + arenaOptions + '</select></label></div>' +
       '<div class="actions"><button class="pri" data-act="solo">Parkour Run <span class="k">timed</span></button>' +
       '<button data-act="bot">Combat Duel vs Bot <span class="k">AI</span></button>' +
@@ -102,7 +102,7 @@
       '<div class="foot"><button class="ghost" data-act="settings">Settings</button><button class="ghost" data-act="controls">Controls</button><button class="ghost" data-act="stats">Stats</button></div>' +
       '</div>' +
       '<div class="stack">' + UI.profileBlock() +
-      '<div class="panel"><h2>How it works</h2><p class="sub" style="margin:0">Race through a newly generated course, or fight for knockbacks. Everything is procedural: 32px textures, normal maps, six themes, moving platforms, ice, slime, speed pads, checkpoints and hazards.</p></div>' +
+      '<div class="panel"><h2>How it works</h2><p class="sub" style="margin:0">Race through a newly generated course, or fight for knockbacks. Everything is procedural: 32px textures, normal maps, eleven themes, moving platforms, ice, slime, speed pads, checkpoints and hazards. Every PvP arena lets you place and break blocks with <b>F</b> / <b>G</b> and cycle block types with <b>B</b>.</p></div>' +
       '</div></div></div>';
 
     UI.bindProfileBlock(UI.showMenu);
@@ -173,7 +173,9 @@
         slots.push('<div class="slot empty">Open slot</div>');
       } else {
         const ready = p.host ? '<span class="ready host">HOST</span>' : p.ready ? '<span class="ready">READY</span>' : '<span class="ready no">WAITING</span>';
-        const team = room.mode === 'team' ? '<small style="color:' + (p.team === 0 ? '#35e0e8' : '#ff6b5b') + '">Team ' + (p.team === 0 ? 'Cyan' : 'Red') + '</small>' : '';
+        const canSet = isHost || p.id === app.myId;
+        const teamBtn = (t) => '<button class="teambtn' + ((p.team & 1) === t ? ' sel' : '') + '" data-team="' + esc(p.id) + ':' + t + '"' + (canSet ? '' : ' disabled') + '>' + (t === 0 ? 'Cyan' : 'Red') + '</button>';
+        const team = room.mode === 'team' ? '<div class="teamrow">' + teamBtn(0) + teamBtn(1) + '</div>' : '';
         slots.push('<div class="slot"><div class="avatar" style="' + UI.skinHead(p.skin) + '"></div><div class="who"><b>' + esc(p.name) + (p.id === app.myId ? ' (you)' : '') + '</b>' + team + '<small>' + esc((VOX.Textures.SKINS[p.skin] || VOX.Textures.SKINS.steve).name) + '</small></div>' + ready + '</div>');
       }
     }
@@ -181,20 +183,37 @@
       { id: 'race', name: 'Parkour Race', sub: '2–4 players · first to the finish' },
       { id: 'duel', name: 'Weapon Duel', sub: '1v1 · first to 5 knockouts' },
       { id: 'team', name: 'Team Battle', sub: '2v2 · shared score' },
+      { id: 'ffa', name: 'Free For All', sub: '2–4 players · most KOs when time runs out' },
     ];
     const modeHtml = modes.map((m) => '<div class="mode ' + (room.mode === m.id ? 'sel' : '') + '" data-mode="' + m.id + '"><b>' + m.name + '</b><small>' + m.sub + '</small></div>').join('');
     const arenaOptions = '<option value="">Random</option>' + Object.keys(VOX.Arenas)
       .filter((id) => VOX.Arenas[id].mode === 'pvp')
-      .map((id) => '<option value="' + id + '" ' + (room.arena === id ? 'selected' : '') + '>' + esc(VOX.Arenas[id].name) + '</option>')
+      .map((id) => '<option value="' + id + '" ' + (room.arena === id ? 'selected' : '') + '>' + esc(VOX.Arenas[id].name) + (VOX.Arenas[id].isNew ? ' · NEW' : '') + '</option>')
       .join('');
 
     const canStart =
       room.mode === 'race' ? room.players.length >= 1 :
       room.mode === 'duel' ? room.players.length === 2 :
-      room.players.length === 4;
+      room.mode === 'team' ? room.players.length === 4 :
+      room.players.length >= 2;
 
+    const teamsOk = room.mode !== 'team' || (
+      room.players.filter((p) => (p.team & 1) === 0).length === 2 &&
+      room.players.filter((p) => (p.team & 1) === 1).length === 2
+    );
     const allReady = room.players.every((p) => p.host || p.ready);
-    const startOk = isHost && canStart && allReady;
+    const startOk = isHost && canStart && teamsOk && allReady;
+    const needText = room.mode === 'duel' ? '2 players'
+      : room.mode === 'team' ? '4 players (2 vs 2)'
+      : room.mode === 'ffa' ? '2 or more players' : 'players';
+    const msgHtml = startOk ? '' : '<div class="notice warn">' + (
+      !teamsOk ? 'Teams must be 2 vs 2. Tap Cyan or Red to switch.' :
+      canStart ? 'Waiting for everyone to ready up.' :
+      'Need ' + needText + ' to start.'
+    ) + '</div>';
+    const playersHint = room.mode === 'team'
+      ? 'Tap Cyan/Red to switch teams. The host can also move players.'
+      : 'Ready up before the host starts.';
 
     const bottom = isHost
       ? '<button class="pri" id="lobbyStart" ' + (startOk ? '' : 'disabled') + '>Start Match</button>'
@@ -204,28 +223,41 @@
       '<div class="shell"><div class="brand" style="margin-bottom:14px"><div class="logo"></div><div><h1 style="font-size:28px">ROOM ' + esc(room.code) + '</h1><p>' + (isHost ? 'You are the host' : 'Waiting for the host') + ' · ' + esc(app.netMode || 'p2p') + (app.ping ? ' · ' + app.ping + ' ms' : '') + '</p></div></div>' +
       '<div class="grid"><div class="stack">' +
       '<div class="panel"><h2>Invite</h2><div class="codebox"><div class="code" id="roomCode">' + esc(room.code) + '</div><button class="small" id="copyCode">Copy code</button></div><div class="row" style="margin-top:8px"><button class="small" id="copyInvite">Copy invite link</button></div><div class="notice">Share the invite link or code. Friends open the invite link to auto-join, or paste the code into <b>Join Room</b>. Max 4 players.</div></div>' +
-      '<div class="panel"><h2>Players</h2><p class="sub">Ready up before the host starts.</p><div class="slots">' + slots.join('') + '</div></div>' +
+      '<div class="panel"><h2>Players</h2><p class="sub">' + playersHint + '</p><div class="slots">' + slots.join('') + '</div></div>' +
       '</div><div class="stack">' +
       '<div class="panel"><h2>Mode</h2><p class="sub">' + (isHost ? 'Choose the match type.' : 'Host chooses the mode.') + '</p>' +
       '<div class="modes" id="modeCards">' + modeHtml + '</div>' +
       '<div class="row"><label class="field"><span>Difficulty</span><select id="lobbyDiff" ' + (isHost ? '' : 'disabled') + '>' +
       VOX.LevelGen.DIFFICULTY_IDS.map((k) => '<option value="' + k + '" ' + (room.difficulty === k ? 'selected' : '') + '>' + VOX.LevelGen.DIFFICULTY[k].name + '</option>').join('') +
       '</select></label><label class="field"><span>Theme</span><select id="lobbyTheme" ' + (isHost ? '' : 'disabled') + '><option value="">Random</option>' +
-      VOX.LevelGen.THEME_IDS.map((k) => '<option value="' + k + '" ' + (room.theme === k ? 'selected' : '') + '>' + VOX.LevelGen.THEMES[k].name + '</option>').join('') +
-      '</select></label><label class="field"><span>Arena</span><select id="lobbyArena" ' + (isHost ? '' : 'disabled') + '>' + arenaOptions + '</select></label></div>' +
+      VOX.LevelGen.THEME_IDS.map((k) => '<option value="' + k + '" ' + (room.theme === k ? 'selected' : '') + '>' + VOX.LevelGen.THEMES[k].name + (VOX.LevelGen.THEMES[k].isNew ? ' · NEW' : '') + '</option>').join('') +
+      '</select></label><label class="field"><span>Arena</span><select id="lobbyArena" ' + (isHost ? '' : 'disabled') + '>' + arenaOptions + '</select></label>' +
+      (room.mode === 'ffa' ? '<label class="field"><span>FFA Timer</span><select id="lobbyFfaTime" ' + (isHost ? '' : 'disabled') + '>' +
+        '<option value="300" ' + ((room.ffaTime || 300) === 300 ? 'selected' : '') + '>5 minutes</option>' +
+        '<option value="600" ' + (room.ffaTime === 600 ? 'selected' : '') + '>10 minutes</option>' +
+        '</select></label>' : '') + '</div>' +
       '<div class="row" style="margin-top:10px;align-items:center"><div class="pill cy" style="flex:1;justify-content:center">Seed ' + room.seed + '</div>' +
       (isHost ? '<button class="small" id="reroll">Reroll</button>' : '') + '</div>' +
-      '<div id="lobbyMsg" style="margin-top:10px">' + (startOk ? '' : '<div class="notice warn">' + (canStart ? 'Waiting for everyone to ready up.' : 'Need ' + (room.mode === 'duel' ? '2 players' : room.mode === 'team' ? '4 players' : 'players') + ' to start.') + '</div>') + '</div>' +
+      '<div id="lobbyMsg" style="margin-top:10px">' + msgHtml + '</div>' +
       '</div><div class="foot"><span class="spacer"></span><button class="danger" id="lobbyLeave">Leave</button>' + bottom + '</div>' +
       '</div></div></div>';
 
     document.querySelectorAll('#modeCards .mode').forEach((m) => {
       m.onclick = () => { if (isHost) app.setRoomMode(m.dataset.mode); };
     });
+    document.querySelectorAll('[data-team]').forEach((b) => {
+      b.onclick = () => {
+        const raw = b.dataset.team;
+        const cut = raw.lastIndexOf(':');
+        if (cut > 0) app.requestTeam(raw.slice(0, cut), +raw.slice(cut + 1));
+      };
+    });
     if (isHost) {
       $('lobbyDiff').onchange = (e) => app.setRoomOptions({ difficulty: e.target.value });
       $('lobbyTheme').onchange = (e) => app.setRoomOptions({ theme: e.target.value });
       $('lobbyArena').onchange = (e) => app.setRoomOptions({ arena: e.target.value });
+      const ft = $('lobbyFfaTime');
+      if (ft) ft.onchange = (e) => app.setRoomOptions({ ffaTime: +e.target.value });
       const rr = $('reroll');
       if (rr) rr.onclick = () => app.setRoomOptions({ seed: VOX.LevelGen.randomSeed() });
     }
@@ -290,7 +322,7 @@
     $('overlay').innerHTML =
       '<div class="shell" style="max-width:720px"><div class="brand" style="margin-bottom:14px"><div class="logo"></div><div><h1 style="font-size:26px">CONTROLS</h1><p>Identical movement engine across every mode</p></div></div>' +
       '<div class="panel"><div class="scroll"><table style="width:100%;border-collapse:collapse;font-size:14px;line-height:1.9">' +
-      [['W A S D', 'Move'], ['Mouse', 'Look'], ['Space', 'Jump / double jump'], ['C', 'Slide'], ['E', 'Quick grapple (hold to keep pulling)'], ['1 / 2 / 3 / 4', 'Sword / spear / grapple / bow'], ['Scroll', 'Change weapon'], ['I', 'Inspect player'], ['Shift', 'Sneak (edge guard)'], ['Ctrl / double-tap W', 'Sprint'], ['V', 'First / third person'], ['R', 'Respawn / restart'], ['Esc', 'Pause'], ['Left click', 'Attack / fire bow / break block (bridge)'], ['Right click', 'Spear charge & dash / weapon block / place block (bridge)'], ['F', 'Place block (PvP build arenas)'], ['G', 'Break block (PvP build arenas)']].map((r) => '<tr><td style="width:44%"><kbd>' + r[0] + '</kbd></td><td>' + r[1] + '</td></tr>').join('') +
+      [['W A S D', 'Move'], ['Mouse', 'Look'], ['Space', 'Jump / double jump'], ['C', 'Slide'], ['E', 'Quick grapple (hold to keep pulling)'], ['1 / 2 / 3 / 4', 'Sword / spear / grapple / bow'], ['Scroll', 'Change weapon'], ['I', 'Inspect player'], ['Tab', 'Scoreboard (hold, PvP)'], ['Shift', 'Sneak (edge guard)'], ['Ctrl / double-tap W', 'Sprint'], ['V', 'First / third person'], ['R', 'Respawn / restart'], ['Esc', 'Pause'], ['Left click', 'Attack / fire bow / break block (bridge)'], ['Right click', 'Spear charge & dash / weapon block / place block (bridge)'], ['F', 'Place block (all PvP arenas)'], ['G', 'Break block (all PvP arenas)'], ['B', 'Cycle build block (PvP)']].map((r) => '<tr><td style="width:44%"><kbd>' + r[0] + '</kbd></td><td>' + r[1] + '</td></tr>').join('') +
       '</table><p class="sub" style="margin-top:12px">Sprint jumps carry the most distance. In PvP, hit while falling for a crit, and reset your sprint with a W-tap to keep strong knockback. Spear lunges at targets in front; the hook pulls rivals toward you. In races, hits only bump rivals. Sneak blocks you from walking off ledges.</p></div>' +
       '<div class="foot"><span class="spacer"></span><button class="ghost" id="ctrlBack">Back</button></div></div></div>';
     $('ctrlBack').onclick = back;
@@ -375,6 +407,8 @@
     if (!h) return;
     const set = (id, v) => { const e = $(id); if (e && e.innerHTML !== v) e.innerHTML = v; };
     set('timerText', esc(h.time || ''));
+    const tt = $('timerText');
+    if (tt) tt.classList.toggle('low', !!h.timeLow);
     set('levelText', esc(h.levelName || ''));
     set('cpText', esc(h.cpText || ''));
     set('posText', h.pos || '');
@@ -398,6 +432,22 @@
         ).join('');
       }
     }
+    const sb = $('scoreboard');
+    if (sb) {
+      const show = !!(h.scoreboard && h.scoreboard.length);
+      sb.classList.toggle('hidden', !show);
+      if (show) {
+        const skey = h.scoreboard.map((r) => r.name + '|' + r.kills + '|' + r.deaths + '|' + r.me).join(',');
+        if (skey !== UI.lastScoreboard) {
+          UI.lastScoreboard = skey;
+          sb.innerHTML = '<div class="sbh"><span>SCOREBOARD</span><span>HOLD TAB</span></div>' +
+            '<div class="sbrow sbhead"><span></span><span class="nm">PLAYER</span><span class="k">KOs</span><span class="d">DEATHS</span></div>' +
+            h.scoreboard.map((r, i) =>
+              '<div class="sbrow ' + (r.me ? 'me' : '') + '"><span class="rk">' + (i + 1) + '</span><span class="nm" style="color:' + (r.color || '#e9eff7') + '">' + esc(r.name) + '</span><span class="k">' + r.kills + '</span><span class="d">' + r.deaths + '</span></div>'
+            ).join('');
+        }
+      }
+    }
     const hot = $('hotbar');
     hot.style.display = h.hotbar && h.hotbar.length ? 'flex' : 'none';
     if (h.hotbar) {
@@ -405,6 +455,17 @@
       if (key !== UI.lastHot) {
         UI.lastHot = key;
         hot.innerHTML = h.hotbar.map((x) => '<div class="hotslot ' + (x.selected ? 'sel' : '') + '"><div><div class="sw" style="background:' + (x.color || '#555') + '"></div>' + esc(x.label) + '</div></div>').join('');
+      }
+    }
+    const bb = $('buildbar');
+    if (bb) {
+      bb.style.display = h.build && h.build.length ? 'flex' : 'none';
+      if (h.build) {
+        const bkey = h.build.map((x) => x.label + x.color + x.selected).join('|');
+        if (bkey !== UI.lastBuild) {
+          UI.lastBuild = bkey;
+          bb.innerHTML = h.build.map((x) => '<div class="buildslot ' + (x.selected ? 'sel' : '') + '"><div><div class="sw" style="background:' + (x.color || '#555') + '"></div>' + esc(x.label) + '</div></div>').join('');
+        }
       }
     }
     const hint = $('hint');
